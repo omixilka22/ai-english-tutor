@@ -482,7 +482,10 @@ async def my_students_callback(callback):
 # TEACHER → STUDENT
 # =============================================================
 
-@dp.callback_query(F.data.startswith("student_"))
+@dp.callback_query(
+    F.data.startswith("student_") &
+    F.data.regexp(r"^student_\d+$")
+)
 async def student_callback(callback):
     student_id = int(callback.data.split("_")[1])
     telegram_id = callback.from_user.id
