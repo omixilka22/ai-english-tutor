@@ -2,6 +2,8 @@ import asyncio
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, CommandObject
+from aiogram.fsm.storage.memory import SimpleEventIsolation
+from app.bot.handlers.schedules import router as schedule_router
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
@@ -15,7 +17,6 @@ from app.bot.keyboards.registration import (
 from app.bot.keyboards.main import (
     teacher_main_menu_keyboard,
     student_main_menu_keyboard,
-    schedule_menu_keyboard,
     students_keyboard,
     student_menu_keyboard,
 )
@@ -33,14 +34,17 @@ from app.services.invite_service import InviteService
 
 
 bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(events_isolation=SimpleEventIsolation())
+dp.include_router(schedule_router)
 
 
 @dp.message(CommandStart())
 async def start_handler(
     message: Message,
     command: CommandObject,
+    state: FSMContext,
 ):
+    await state.clear()
     telegram_id = message.from_user.id
     name = message.from_user.full_name
 
@@ -256,7 +260,8 @@ async def student_registration_callback(callback):
 # =============================================================
 
 @dp.callback_query(F.data == "change_role")
-async def change_role_callback(callback):
+async def change_role_callback(callback, state: FSMContext):
+    await state.clear()
     await callback.message.answer(
         "Оберіть нову роль:",
         reply_markup=role_change_keyboard(),
@@ -414,7 +419,8 @@ async def create_student_invite_callback(callback):
 # =============================================================
 
 @dp.callback_query(F.data == "my_students")
-async def my_students_callback(callback):
+async def my_students_callback(callback, state: FSMContext):
+    await state.clear()
     telegram_id = callback.from_user.id
 
     async with AsyncSessionLocal() as session:
@@ -486,7 +492,8 @@ async def my_students_callback(callback):
     F.data.startswith("student_") &
     F.data.regexp(r"^student_\d+$")
 )
-async def student_callback(callback):
+async def student_callback(callback, state: FSMContext):
+    await state.clear()
     student_id = int(callback.data.split("_")[1])
     telegram_id = callback.from_user.id
 
@@ -566,45 +573,6 @@ async def student_callback(callback):
             "Оберіть потрібну дію:",
             reply_markup=student_menu_keyboard(student.id),
         )
-
-    await callback.answer()
-
-
-# =============================================================
-# SCHEDULE
-# =============================================================
-
-@dp.callback_query(F.data == "schedule_menu")
-async def schedule_menu_callback(callback):
-
-    await callback.message.answer(
-        "📅 Розклад\n\n"
-        "Оберіть, що хочете переглянути:",
-        reply_markup=schedule_menu_keyboard(),
-    )
-
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "general_schedule")
-async def general_schedule_callback(callback):
-
-    await callback.message.answer(
-        "📅 Загальний розклад\n\n"
-        "Тут буде розклад усіх ваших учнів."
-    )
-
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "student_schedule")
-async def student_schedule_callback(callback):
-
-    await callback.message.answer(
-        "👨‍🎓 Розклад учня\n\n"
-        "Тут ви зможете вибрати учня "
-        "та переглянути його розклад."
-    )
 
     await callback.answer()
 

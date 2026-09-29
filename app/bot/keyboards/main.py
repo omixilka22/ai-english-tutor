@@ -67,21 +67,6 @@ def schedule_menu_keyboard() -> InlineKeyboardMarkup:
 def students_keyboard(students) -> InlineKeyboardMarkup:
     buttons = []
 
-    for student in students:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=f"👨‍🎓 {student.user.name}",
-                    callback_data=f"student_{student.id}",
-                )
-            ]
-        )
-
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def students_keyboard(students) -> InlineKeyboardMarkup:
-    buttons = []
-
     for student, user in students:
         buttons.append(
             [
@@ -95,6 +80,7 @@ def students_keyboard(students) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=buttons
     )
+
 
 def student_menu_keyboard(student_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -116,6 +102,65 @@ def student_menu_keyboard(student_id: int) -> InlineKeyboardMarkup:
                     text="⬅️ Назад до учнів",
                     callback_data="my_students",
                 )
+            ],
+        ]
+    )
+
+
+def student_schedule_keyboard(student_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="➕ Додати розклад",
+                    callback_data=f"add_schedule_{student_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⬅️ Назад до учня",
+                    callback_data=f"student_{student_id}",
+                )
+            ],
+        ]
+    )
+
+def weekdays_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Пн",
+                    callback_data="schedule_day_0",
+                ),
+                InlineKeyboardButton(
+                    text="Вт",
+                    callback_data="schedule_day_1",
+                ),
+                InlineKeyboardButton(
+                    text="Ср",
+                    callback_data="schedule_day_2",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Чт",
+                    callback_data="schedule_day_3",
+                ),
+                InlineKeyboardButton(
+                    text="Пт",
+                    callback_data="schedule_day_4",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Сб",
+                    callback_data="schedule_day_5",
+                ),
+                InlineKeyboardButton(
+                    text="Нд",
+                    callback_data="schedule_day_6",
+                ),
             ],
         ]
     )

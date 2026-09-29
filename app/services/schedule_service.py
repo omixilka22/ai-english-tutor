@@ -1,4 +1,7 @@
 from datetime import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from app.database.repository.student_repository import StudentRepository
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +12,19 @@ from app.database.repository.weekly_schedule_repository import (
 
 
 class ScheduleService:
+
+    @staticmethod
+    def validate_schedule(day_of_week, start_time, duration_minutes, timezone):
+        if not 0 <= day_of_week <= 6:
+            raise ValueError("День тижня має бути від 0 до 6.")
+        if not 1 <= duration_minutes <= 1440:
+            raise ValueError("Тривалість має бути від 1 до 1440 хвилин.")
+        if start_time.tzinfo is not None:
+            raise ValueError("Вкажіть місцевий час без UTC-зсуву.")
+        try:
+            ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError, TypeError):
+            raise ValueError("Невідомий часовий пояс.") from None
 
     @staticmethod
     async def get_by_id(
@@ -51,15 +67,13 @@ class ScheduleService:
         timezone: str,
     ) -> WeeklySchedule:
 
-        if not 0 <= day_of_week <= 6:
-            raise ValueError(
-                "day_of_week must be between 0 and 6"
-            )
+        ScheduleService.validate_schedule(
+            day_of_week, start_time, duration_minutes, timezone,
+        )
 
-        if duration_minutes <= 0:
-            raise ValueError(
-                "duration_minutes must be greater than 0"
-            )
+        student = await StudentRepository.get_by_id(session, student_id)
+        if student is None or student.teacher_id != teacher_id:
+            raise ValueError("Учень не належить цьому викладачу.")
 
         return await WeeklyScheduleRepository.create(
             session,
@@ -81,15 +95,9 @@ class ScheduleService:
         timezone: str,
     ) -> WeeklySchedule:
 
-        if not 0 <= day_of_week <= 6:
-            raise ValueError(
-                "day_of_week must be between 0 and 6"
-            )
-
-        if duration_minutes <= 0:
-            raise ValueError(
-                "duration_minutes must be greater than 0"
-            )
+        ScheduleService.validate_schedule(
+            day_of_week, start_time, duration_minutes, timezone,
+        )
 
         return await WeeklyScheduleRepository.update(
             session,
