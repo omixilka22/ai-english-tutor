@@ -93,19 +93,19 @@ class ScheduleService:
         start_time: time,
         duration_minutes: int,
         timezone: str,
+        apply_future: bool = False,
+        expected: dict | None = None,
     ) -> WeeklySchedule:
 
         ScheduleService.validate_schedule(
             day_of_week, start_time, duration_minutes, timezone,
         )
 
-        return await WeeklyScheduleRepository.update(
-            session,
-            schedule,
-            day_of_week,
-            start_time,
-            duration_minutes,
-            timezone,
+        from app.services.calendar_service import CalendarService
+        return await CalendarService.update_rule(
+            session, schedule, day_of_week=day_of_week, start_time=start_time,
+            duration_minutes=duration_minutes, timezone=timezone,
+            apply_future=apply_future, expected=expected,
         )
 
     @staticmethod

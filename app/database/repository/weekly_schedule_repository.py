@@ -67,6 +67,9 @@ class WeeklyScheduleRepository:
         )
 
         session.add(schedule)
+        await session.flush()
+        from app.services.calendar_service import CalendarService, utcnow
+        await CalendarService.generate_locked(session, schedule, utcnow())
         await session.commit()
         await session.refresh(schedule)
 

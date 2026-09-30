@@ -1,166 +1,51 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from app.bot.ui import keyboard, navigation
 
 
-def teacher_main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="👨‍🎓 Мої учні",
-                    callback_data="my_students",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="👨‍🎓 Запросити учня",
-                    callback_data="create_student_invite",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📅 Розклад",
-                    callback_data="schedule_menu",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🔄 Змінити роль",
-                    callback_data="change_role",
-                )
-            ],
-        ]
-    )
+def teacher_main_menu_keyboard():
+    return keyboard([
+        [('👥 Мої учні', 'my_students'), ('📅 Розклад', 'schedule_menu')],
+        [('＋ Запросити учня', 'create_student_invite')],
+        [('⚙ Змінити роль', 'change_role')],
+    ])
 
 
-def student_main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔄 Змінити роль",
-                    callback_data="change_role",
-                )
-            ],
-        ]
-    )
+def student_main_menu_keyboard():
+    return keyboard([[('📚 Мої заняття', 'my_lessons')], [('🔔 Нагадування', 'notification_settings')], [('⚙ Змінити роль', 'change_role')]])
 
 
-def schedule_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📅 Загальний розклад",
-                    callback_data="general_schedule",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="👨‍🎓 Розклад учня",
-                    callback_data="student_schedule",
-                )
-            ],
-        ]
-    )
+def schedule_menu_keyboard():
+    return keyboard([
+        [('📅 Увесь розклад', 'general_schedule')],
+        [('👤 Обрати учня', 'student_schedule')],
+        [('‹ Назад', 'home')],
+    ])
 
 
-def students_keyboard(students) -> InlineKeyboardMarkup:
-    buttons = []
-
-    for student, user in students:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=f"👨‍🎓 {user.name}",
-                    callback_data=f"student_{student.id}",
-                )
-            ]
-        )
-
-    return InlineKeyboardMarkup(
-        inline_keyboard=buttons
-    )
+def students_keyboard(students):
+    return keyboard([[(user.name, f'student_{student.id}')] for student, user in students]
+                    + [[('‹ Назад', 'home')]])
 
 
-def student_menu_keyboard(student_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📅 Розклад",
-                    callback_data=f"student_schedule_{student_id}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📚 Заняття",
-                    callback_data=f"student_lessons_{student_id}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="⬅️ Назад до учнів",
-                    callback_data="my_students",
-                )
-            ],
-        ]
-    )
+def student_menu_keyboard(student_id):
+    return keyboard([
+        [('🎥 Посилання на урок', f'meet_{student_id}')],
+        [('📅 Розклад', f'student_schedule_{student_id}')],
+        [('📚 Заняття', f'student_lessons_{student_id}')],
+        [('＋ Додаткове заняття', f'extra_lesson_{student_id}')],
+        [('‹ До учнів', 'my_students'), ('⌂ Головне меню', 'home')],
+    ])
 
 
-def student_schedule_keyboard(student_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="➕ Додати розклад",
-                    callback_data=f"add_schedule_{student_id}",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="⬅️ Назад до учня",
-                    callback_data=f"student_{student_id}",
-                )
-            ],
-        ]
-    )
+def student_schedule_keyboard(student_id):
+    return keyboard([
+        [('＋ Додати розклад', f'add_schedule_{student_id}')],
+        [('✎ Редагувати розклад', f'edit_student_schedule_{student_id}')],
+        [('＋ Додаткове заняття', f'extra_lesson_{student_id}')],
+        [('‹ До учня', f'student_{student_id}'), ('⌂ Головне меню', 'home')],
+    ])
 
-def weekdays_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Пн",
-                    callback_data="schedule_day_0",
-                ),
-                InlineKeyboardButton(
-                    text="Вт",
-                    callback_data="schedule_day_1",
-                ),
-                InlineKeyboardButton(
-                    text="Ср",
-                    callback_data="schedule_day_2",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Чт",
-                    callback_data="schedule_day_3",
-                ),
-                InlineKeyboardButton(
-                    text="Пт",
-                    callback_data="schedule_day_4",
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text="Сб",
-                    callback_data="schedule_day_5",
-                ),
-                InlineKeyboardButton(
-                    text="Нд",
-                    callback_data="schedule_day_6",
-                ),
-            ],
-        ]
-    )
+
+def weekdays_keyboard():
+    days = ('Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд')
+    return keyboard([[(name, f'schedule_day_{i}') for i, name in enumerate(days[:4])],
+                     [(days[i], f'schedule_day_{i}') for i in range(4,7)]])

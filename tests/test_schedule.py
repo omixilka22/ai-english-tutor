@@ -63,7 +63,13 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         self.session=AsyncMock()
         context=AsyncMock()
         context.__aenter__.return_value=self.session
-        for p in [patch.object(ui,'AsyncSessionLocal',return_value=context),
+        async def screen(event, state, text, reply_markup=None):
+            message = getattr(event, 'message', event)
+            await message.answer(text, reply_markup=reply_markup)
+        for p in [patch.object(ui,'show_screen',side_effect=screen),
+                  patch('app.bot.ui.show_screen',side_effect=screen),
+                  patch.object(ui.UserService,'get_by_id',AsyncMock(return_value=Obj(name='Test Student'))),
+                  patch.object(ui,'AsyncSessionLocal',return_value=context),
                   patch.object(ui.UserService,'get_by_telegram_id',AsyncMock(return_value=Obj(id=2,role=UserRole.TEACHER))),
                   patch.object(ui.TeacherService,'get_by_user_id',AsyncMock(return_value=Obj(id=1))),
                   patch.object(ui.StudentService,'get_by_id',AsyncMock(return_value=Obj(id=10,teacher_id=1,user_id=3))),
@@ -109,6 +115,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_input_keeps_state(self):
         await self.state.set_state(ScheduleState.waiting_for_time)
+        await self.state.update_data(student_id=10,day_of_week=0)
         self.message.text=None
         await ui.enter_time(self.message,self.state)
         self.assertEqual(await self.state.get_state(),ScheduleState.waiting_for_time.state)

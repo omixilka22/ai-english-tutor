@@ -1,4 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from app.database.models import Student, WeeklySchedule
+from app.services.recurrence import aware_utc
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,13 +51,25 @@ class LessonService:
         scheduled_at: datetime,
         schedule_id: int | None = None,
     ) -> Lesson:
-        return await LessonRepository.create(
-            session,
-            teacher_id,
-            student_id,
-            scheduled_at,
-            schedule_id,
-        )
+        scheduled_at = aware_utc(scheduled_at)
+        student = await session.get(Student, student_id)
+        if student is None or student.teacher_id != teacher_id:
+            raise ValueError("Учень не належить викладачу.")
+        options = {}
+        if schedule_id is not None:
+            schedule = (await session.execute(select(WeeklySchedule).where(
+                WeeklySchedule.id == schedule_id).with_for_update())).scalar_one_or_none()
+            if schedule is None or not schedule.active or schedule.teacher_id != teacher_id or schedule.student_id != student_id:
+                raise ValueError("Розклад не належить цьому викладачу та учню.")
+            local_day = scheduled_at.astimezone(ZoneInfo(schedule.timezone)).date()
+            options = dict(occurrence_week=local_day-timedelta(days=local_day.weekday()),
+                           duration_minutes=schedule.duration_minutes, timezone=schedule.timezone)
+        try:
+            return await LessonRepository.create(session, teacher_id, student_id,
+                scheduled_at, schedule_id, **options)
+        except IntegrityError:
+            await session.rollback()
+            raise ValueError("Заняття для цього тижня вже існує.") from None
 
     @staticmethod
     async def update_status(

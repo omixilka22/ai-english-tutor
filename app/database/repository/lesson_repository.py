@@ -14,7 +14,7 @@ class LessonRepository:
         lesson_id: int,
     ) -> Lesson | None:
         result = await session.execute(
-            select(Lesson).where(Lesson.id == lesson_id)
+            select(Lesson).where(Lesson.id == lesson_id, Lesson.is_deleted.is_(False))
         )
 
         return result.scalar_one_or_none()
@@ -25,7 +25,7 @@ class LessonRepository:
         teacher_id: int,
     ) -> list[Lesson]:
         result = await session.execute(
-            select(Lesson).where(Lesson.teacher_id == teacher_id)
+            select(Lesson).where(Lesson.teacher_id == teacher_id, Lesson.is_deleted.is_(False))
         )
 
         return list(result.scalars().all())
@@ -36,7 +36,7 @@ class LessonRepository:
         student_id: int,
     ) -> list[Lesson]:
         result = await session.execute(
-            select(Lesson).where(Lesson.student_id == student_id)
+            select(Lesson).where(Lesson.student_id == student_id, Lesson.is_deleted.is_(False))
         )
 
         return list(result.scalars().all())
@@ -48,12 +48,14 @@ class LessonRepository:
         student_id: int,
         scheduled_at: datetime,
         schedule_id: int | None = None,
+        *, occurrence_week=None, duration_minutes=60, timezone="Europe/Kyiv",
     ) -> Lesson:
         lesson = Lesson(
             teacher_id=teacher_id,
             student_id=student_id,
             schedule_id=schedule_id,
             scheduled_at=scheduled_at,
+            occurrence_week=occurrence_week, duration_minutes=duration_minutes, timezone=timezone,
         )
 
         session.add(lesson)
