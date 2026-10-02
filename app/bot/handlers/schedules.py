@@ -1,6 +1,11 @@
 """Schedule views and an editable four-step creation wizard."""
 import re
-from datetime import time
+from datetime import date, time, timedelta
+from zoneinfo import ZoneInfo
+from app.services.recurrence import week_monday
+from app.services.week_service import week_lessons, decide, validate_target
+from app.services.calendar_service import utcnow
+from app.workers.week_renewal import renewal_keyboard
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -70,77 +75,139 @@ async def schedule_menu(callback, state: FSMContext):
                       reply_markup=schedule_menu_keyboard())
 
 
+def selected_week(callback):
+    tail = callback.data.rsplit('_', 1)[-1]
+    return date.fromisoformat(tail) if '-' in tail else week_monday()
+
+
+def week_title(week):
+    return f'{week:%d.%m}–{week + timedelta(days=6):%d.%m.%Y}'
+
+
 @router.callback_query(F.data == 'general_schedule')
+@router.callback_query(F.data.startswith('week_view_'))
 async def general_schedule(callback, state: FSMContext):
+    week = selected_week(callback)
     await clear_flow(state)
     async with AsyncSessionLocal() as session:
         try:
             teacher = await teacher_for(session, callback.from_user.id)
+            validate_target(week, utcnow())
         except ValueError as error:
             await callback.answer(str(error), show_alert=True)
             return
         students = await StudentService.get_by_teacher_id(session, teacher.id)
-        names = {s.id:u.name for s,u in students}
-        schedules = await ScheduleService.get_by_teacher_id(session, teacher.id)
-    lines = [f'• {names[s.student_id]}\n  {format_schedule(s)}'
-             for s in sorted(schedules,key=lambda s:(s.day_of_week,s.start_time,s.id))
-             if s.active and s.student_id in names]
+        names = {student.id: user.name for student, user in students}
+        lessons = await week_lessons(session, teacher.id, week)
+    from app.bot.handlers.lessons import attendance_label
+    rows = [[(f'{l.scheduled_at.astimezone(ZoneInfo(TIMEZONE)):%d.%m %H:%M} · {names.get(l.student_id, "Учень")} · {attendance_label(l)}', f'lesson_{l.id}')] for l in lessons]
+    other = week_monday() + timedelta(days=7) if week == week_monday() else week_monday()
+    footer = keyboard([
+        [('＋ Додати заняття', f'week_students_{week.isoformat()}')],
+        [('Повторити попередній / скласти новий', f'week_plan_{week.isoformat()}')],
+        [(f'Тиждень {week_title(other)}', f'week_view_{other.isoformat()}')],
+        [('‹ Назад', 'schedule_menu'), ('⌂ Головне меню', 'home')]])
     await callback.answer()
-    await paginated_screen(callback, state, '📅 Увесь розклад',
-        lines=lines or ['Поки що порожньо. Оберіть учня, щоб додати розклад.'],
-        footer=navigation('schedule_menu'))
+    await paginated_screen(callback, state, f'📅 {week_title(week)}' + ('\nЗанять поки немає.' if not rows else ''), rows=rows, footer=footer)
 
 
 @router.callback_query(F.data == 'student_schedule')
+@router.callback_query(F.data.startswith('week_students_'))
 async def select_student(callback, state: FSMContext):
+    week = selected_week(callback)
     await clear_flow(state)
     async with AsyncSessionLocal() as session:
         try:
             teacher = await teacher_for(session, callback.from_user.id)
+            validate_target(week, utcnow())
         except ValueError as error:
             await callback.answer(str(error), show_alert=True)
             return
         students = await StudentService.get_by_teacher_id(session, teacher.id)
     await callback.answer()
-    await paginated_screen(callback, state,
-        '👤 Розклад учня\n\nОберіть учня:' if students else 'Учнів поки немає. Запросіть першого учня з головного меню.',
-        rows=[[(u.name,f'student_schedule_{s.id}')] for s,u in students],
-        footer=navigation('schedule_menu'))
+    await paginated_screen(callback, state, f'👤 Оберіть учня · {week_title(week)}',
+        rows=[[(u.name, f'week_student_{s.id}_{week.isoformat()}')] for s,u in students],
+        footer=navigation(f'week_view_{week.isoformat()}'))
 
 
 @router.callback_query(F.data.regexp(r'^student_schedule_\d+$'))
+@router.callback_query(F.data.regexp(r'^week_student_\d+_\d{4}-\d{2}-\d{2}$'))
 async def student_schedule(callback, state: FSMContext):
-    student_id = int(callback.data.rsplit('_',1)[1])
+    week = selected_week(callback)
+    student_id = int(callback.data.split('_')[2])
     await clear_flow(state)
     async with AsyncSessionLocal() as session:
         try:
             teacher = await teacher_for(session, callback.from_user.id)
             student = await owned_student(session, teacher.id, student_id)
+            validate_target(week, utcnow())
         except ValueError as error:
             await callback.answer(str(error), show_alert=True)
             return
         user = await UserService.get_by_id(session, student.user_id)
-        schedules = await ScheduleService.get_by_student_id(session, student_id)
-    lines = [f'• {format_schedule(s)}'
-             for s in sorted(schedules,key=lambda s:(s.day_of_week,s.start_time,s.id))
-             if s.active and s.teacher_id == teacher.id]
+        lessons = await week_lessons(session, teacher.id, week, student_id)
+    from app.bot.handlers.lessons import attendance_label
+    rows = [[(f'{l.scheduled_at.astimezone(ZoneInfo(TIMEZONE)):%d.%m %H:%M} · {attendance_label(l)}', f'lesson_{l.id}')] for l in lessons]
+    other = week_monday() + timedelta(days=7) if week == week_monday() else week_monday()
     await callback.answer()
-    await paginated_screen(callback, state, f'📅 Розклад · {user.name if user else student_id}',
-        lines=lines or ['Занять у розкладі ще немає. Додайте перше.'],
-        footer=student_schedule_keyboard(student_id))
+    await paginated_screen(callback, state, f'📅 {user.name if user else student_id} · {week_title(week)}',
+        rows=rows, footer=keyboard([
+            [('＋ Заняття цього тижня', f'week_add_{student_id}_{week.isoformat()}')],
+            [('＋ Разове додаткове', f'extra_lesson_{student_id}')],
+            [(f'Тиждень {week_title(other)}', f'week_student_{student_id}_{other.isoformat()}')],
+            [('‹ Назад', f'week_view_{week.isoformat()}'), ('⌂ Головне меню', 'home')]]))
+
+
+@router.callback_query(F.data.startswith('week_plan_'))
+async def plan_week(callback, state):
+    week = selected_week(callback)
+    async with AsyncSessionLocal() as session:
+        try:
+            await teacher_for(session, callback.from_user.id)
+            validate_target(week, utcnow())
+        except ValueError as error:
+            await callback.answer(str(error), show_alert=True)
+            return
+    await callback.answer()
+    await clear_flow(state)
+    await show_screen(callback, state, f'📅 {week_title(week)}\n\nПовторити фактичні дні й час попереднього тижня? Разові додаткові та скасовані заняття не копіюються. Уже створені заняття зберігаються.', reply_markup=renewal_keyboard(week))
+
+
+@router.callback_query(F.data.startswith('week_repeat_') | F.data.startswith('week_new_'))
+async def decide_week(callback, state):
+    week = selected_week(callback)
+    repeat = callback.data.startswith('week_repeat_')
+    await callback.answer()
+    async with AsyncSessionLocal() as session:
+        try:
+            teacher = await teacher_for(session, callback.from_user.id)
+            count, decision = await decide(session, teacher.id, week, repeat=repeat)
+        except (ValueError, SQLAlchemyError) as error:
+            await session.rollback()
+            text = str(error) if isinstance(error, ValueError) else 'Не вдалося зберегти. Спробуйте ще раз.'
+            await show_screen(callback, state, text, reply_markup=navigation('schedule_menu'))
+            return
+    await clear_flow(state)
+    text = (f'✓ Створено занять: {count}. Учні вже бачать їх у розкладі.' if count else
+            'Рішення збережено. Ви можете додати заняття або змінити вже створені.')
+    await show_screen(callback, state, f'📅 {week_title(week)}\n\n{text}', reply_markup=keyboard([
+        [('＋ Скласти / доповнити розклад', f'week_students_{week.isoformat()}')],
+        [('Переглянути заняття', f'week_view_{week.isoformat()}')],
+        [('⌂ Головне меню', 'home')]]))
 
 
 async def render_wizard(event, state, error=''):
     data = await state.get_data()
     current = await state.get_state()
     name = data.get('student_name') or f"Учень #{data['student_id']}"
-    title = f'📅 Новий розклад · {name}\n'
+    week = date.fromisoformat(data.get('week_start', week_monday().isoformat()))
+    title = f'📅 {name} · {week_title(week)}\n'
     summary = ''
     if current == ScheduleState.choosing_day.state:
         text = 'Крок 1 / 4 · День тижня\n\nКоли відбуватиметься заняття?'
         rows = [[(DAYS[i],f'schedule_day_{i}') for i in range(start,min(start+2,7))]
                 for start in range(0,7,2)]
-        back = f"student_schedule_{data['student_id']}"
+        back = f"week_student_{data['student_id']}_{week.isoformat()}"
     else:
         summary = f"{DAYS[data['day_of_week']]} · {TIMEZONE}\n\n"
         back = 'schedule_back'
@@ -153,7 +220,7 @@ async def render_wizard(event, state, error=''):
                     for values in [(30,45,60),(90,120)]]
         else:
             text = ('Крок 4 / 4 · Підтвердження\n\n' + summary
-                    + f"Початок: {data['start_time']}\nТривалість: {data['duration_minutes']} хв\nПовторення: щотижня")
+                    + f"Початок: {data['start_time']}\nТривалість: {data['duration_minutes']} хв\nЛише на вибраний тиждень. Після збереження заняття бачить учень.")
             rows = [[('✓ Зберегти розклад','schedule_confirm')]]
     if error:
         text += '\n\n' + error
@@ -162,18 +229,21 @@ async def render_wizard(event, state, error=''):
 
 
 @router.callback_query(F.data.regexp(r'^add_schedule_\d+$'))
+@router.callback_query(F.data.regexp(r'^week_add_\d+_\d{4}-\d{2}-\d{2}$'))
 async def add_schedule(callback, state: FSMContext):
-    student_id = int(callback.data.rsplit('_',1)[1])
+    student_id = int(callback.data.split('_')[2])
+    week = selected_week(callback)
     async with AsyncSessionLocal() as session:
         try:
             teacher = await teacher_for(session, callback.from_user.id)
             student = await owned_student(session, teacher.id, student_id)
+            validate_target(week, utcnow())
         except ValueError as error:
             await callback.answer(str(error), show_alert=True)
             return
         user = await UserService.get_by_id(session, student.user_id)
     await clear_flow(state)
-    await state.update_data(student_id=student_id, student_name=user.name if user else None)
+    await state.update_data(student_id=student_id, student_name=user.name if user else None, week_start=week.isoformat())
     await state.set_state(ScheduleState.choosing_day)
     await callback.answer()
     await render_wizard(callback, state)
@@ -222,11 +292,13 @@ async def schedule_back(callback, state: FSMContext):
 
 @router.callback_query(F.data == 'schedule_cancel')
 async def cancel_schedule(callback, state: FSMContext):
-    student_id = (await state.get_data()).get('student_id')
+    data = await state.get_data()
+    student_id = data.get('student_id')
+    week = data.get('week_start', week_monday().isoformat())
     await clear_flow(state)
     await callback.answer()
     await show_screen(callback, state, 'Створення розкладу скасовано.',
-        reply_markup=navigation(f'student_schedule_{student_id}' if student_id else 'schedule_menu'))
+        reply_markup=navigation(f'week_student_{student_id}_{week}' if student_id else 'schedule_menu'))
 
 
 @router.callback_query(ScheduleState.confirming, F.data == 'schedule_confirm')
@@ -239,10 +311,10 @@ async def confirm_schedule(callback, state: FSMContext):
             await owned_student(session, teacher.id, data['student_id'])
             await ScheduleService.create_schedule(session,teacher_id=teacher.id,student_id=data['student_id'],
                 day_of_week=data['day_of_week'],start_time=parse_time(data['start_time']),
-                duration_minutes=data['duration_minutes'],timezone=TIMEZONE)
+                duration_minutes=data['duration_minutes'],timezone=TIMEZONE, week_start=date.fromisoformat(data.get('week_start', week_monday().isoformat())))
         except ValueError as error:
-            await clear_flow(state)
-            await show_screen(callback, state, str(error))
+            await session.rollback()
+            await render_wizard(callback, state, str(error))
             return
         except SQLAlchemyError:
             await session.rollback()
@@ -252,7 +324,7 @@ async def confirm_schedule(callback, state: FSMContext):
     await show_screen(callback, state,
         f"✓ Розклад збережено\n\n{data.get('student_name') or 'Учень'}\n"
         f"{DAYS[data['day_of_week']]} · {data['start_time']} · {data['duration_minutes']} хв\n{TIMEZONE}",
-        reply_markup=student_schedule_keyboard(data['student_id']))
+        reply_markup=navigation(f"week_student_{data['student_id']}_{data['week_start']}"))
 
 
 @router.callback_query(F.data.startswith('schedule_day_') | F.data.startswith('schedule_duration_') |

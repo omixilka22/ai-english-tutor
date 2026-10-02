@@ -51,7 +51,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         with patch('app.services.schedule_service.StudentRepository.get_by_id',AsyncMock(return_value=Obj(teacher_id=1))), patch('app.services.schedule_service.WeeklyScheduleRepository.create',AsyncMock(return_value='saved')) as create:
             session=AsyncMock()
             self.assertEqual(await ScheduleService.create_schedule(session,1,10,0,time(18),60,'Europe/Kyiv'),'saved')
-            create.assert_awaited_once_with(session,1,10,0,time(18),60,'Europe/Kyiv')
+            create.assert_awaited_once_with(session,1,10,0,time(18),60,'Europe/Kyiv',week_start=None)
 
 
 class ConversationTests(unittest.IsolatedAsyncioTestCase):
@@ -96,7 +96,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
     async def test_full_flow(self):
         await self.prepare()
         await ui.confirm_schedule(self.callback,self.state)
-        ui.ScheduleService.create_schedule.assert_awaited_once_with(self.session,teacher_id=1,student_id=10,day_of_week=0,start_time=time(18,30),duration_minutes=60,timezone='Europe/Kyiv')
+        ui.ScheduleService.create_schedule.assert_awaited_once_with(self.session,teacher_id=1,student_id=10,day_of_week=0,start_time=time(18,30),duration_minutes=60,timezone='Europe/Kyiv',week_start=ui.week_monday())
         self.assertIsNone(await self.state.get_state())
         self.assertEqual(await self.state.get_data(),{})
 
@@ -115,7 +115,7 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_input_keeps_state(self):
         await self.state.set_state(ScheduleState.waiting_for_time)
-        await self.state.update_data(student_id=10,day_of_week=0)
+        await self.state.update_data(student_id=10,day_of_week=0,week_start=ui.week_monday().isoformat())
         self.message.text=None
         await ui.enter_time(self.message,self.state)
         self.assertEqual(await self.state.get_state(),ScheduleState.waiting_for_time.state)
@@ -152,16 +152,17 @@ class ConversationTests(unittest.IsolatedAsyncioTestCase):
         self.session.rollback.assert_awaited_once()
         self.assertEqual(await self.state.get_state(),ScheduleState.confirming.state)
 
-    async def test_view_filters_inactive_and_foreign_schedules(self):
-        def row(id,teacher_id=1,active=True):
-            return Obj(id=id,teacher_id=teacher_id,active=active,day_of_week=0,start_time=time(18),duration_minutes=id,timezone='Europe/Kyiv')
-        with patch.object(ui.UserService,'get_by_id',AsyncMock(return_value=Obj(name='Test Student'))), patch.object(ui.ScheduleService,'get_by_student_id',AsyncMock(return_value=[row(60),row(90,active=False),row(120,teacher_id=99)])):
+    async def test_view_uses_actual_week_lessons(self):
+        from datetime import datetime, timezone
+        from app.database.models import LessonStatus
+        lesson = Obj(id=60, scheduled_at=datetime(2026,10,2,18,tzinfo=timezone.utc),
+                     duration_minutes=60,status=LessonStatus.CANCELLED)
+        with patch.object(ui, 'week_lessons', AsyncMock(return_value=[lesson])) as query:
             self.callback.data='student_schedule_10'
             await ui.student_schedule(self.callback,self.state)
-        text=self.message.answer.call_args.args[0]
-        self.assertIn('60 хв',text)
-        self.assertNotIn('90 хв',text)
-        self.assertNotIn('120 хв',text)
+        query.assert_awaited_once_with(self.session, 1, ui.week_monday(), 10)
+        markup=self.message.answer.call_args.kwargs['reply_markup']
+        self.assertTrue(any('Скасовано' in button.text for row in markup.inline_keyboard for button in row))
 
 if __name__=='__main__':
     unittest.main()

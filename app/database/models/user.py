@@ -19,4 +19,6 @@ class User(Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole),nullable=False)
     name: Mapped[str] = mapped_column( String(255), nullable=False)
+    material_notice_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column( DateTime, default=datetime.utcnow,nullable=False)

@@ -28,6 +28,9 @@ class Lesson(Base):
 
     is_deleted = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
+    conducted_at = mapped_column(DateTime(timezone=True), nullable=True)
+    conducted_by = mapped_column(ForeignKey("teachers.id"), nullable=True)
+
     occurrence_week = mapped_column(Date, nullable=True)
     duration_minutes = mapped_column(Integer, nullable=False, default=60, server_default="60")
     timezone = mapped_column(String(64), nullable=False, default="Europe/Kyiv", server_default="Europe/Kyiv")

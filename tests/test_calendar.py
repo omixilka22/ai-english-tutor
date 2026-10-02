@@ -13,7 +13,7 @@ from app.database.models import LessonStatus,UserRole
 UTC=timezone.utc
 NOW=datetime(2026,9,28,8,tzinfo=UTC)
 def rule(**kw):
-    values=dict(id=1,student_id=2,teacher_id=3,active=True,day_of_week=0,start_time=time(18),duration_minutes=60,timezone='Europe/Kyiv')
+    values=dict(week_start=date(2026,9,28),id=1,student_id=2,teacher_id=3,active=True,day_of_week=0,start_time=time(18),duration_minutes=60,timezone='Europe/Kyiv')
     values.update(kw)
     return Obj(**values)
 def lesson(**kw):
@@ -30,17 +30,18 @@ def result(value=None,rows=None):
     return obj
 
 class RecurrenceTests(unittest.TestCase):
-    def test_four_weeks_and_half_open_horizon(self):
+    def test_only_selected_week(self):
         slots=list(weekly_slots(rule(),NOW))
-        self.assertEqual(len(slots),4)
+        self.assertEqual(len(slots),1)
         self.assertEqual(slots[0],(date(2026,9,28),datetime(2026,9,28,15,tzinfo=UTC)))
         self.assertTrue(all(NOW<=t<NOW+timedelta(days=28) for _,t in slots))
     def test_passed_lesson_not_generated(self):
         slots=list(weekly_slots(rule(),datetime(2026,9,28,20,tzinfo=UTC)))
-        self.assertEqual(slots[0][0],date(2026,10,5))
+        self.assertEqual(slots,[])
     def test_utc_offset_changes_but_local_hour_stays(self):
-        slots=list(weekly_slots(rule(),datetime(2026,10,5,tzinfo=UTC)))
-        self.assertEqual([v.hour for _,v in slots],[15,15,15,16])
+        slots = [list(weekly_slots(rule(week_start=week), NOW))[0][1] for week in
+                 [date(2026,10,19), date(2026,10,26)]]
+        self.assertEqual([v.hour for v in slots], [15,16])
     def test_nonexistent_spring_time_is_skipped(self):
         self.assertIsNone(local_instant(date(2026,3,29),time(3,30),'Europe/Kyiv'))
         with self.assertRaises(ValueError):
@@ -53,7 +54,7 @@ class RecurrenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             aware_utc(datetime(2026,1,1))
     def test_year_boundary(self):
-        slots=list(weekly_slots(rule(day_of_week=6),datetime(2026,12,28,tzinfo=UTC)))
+        slots=list(weekly_slots(rule(day_of_week=6,week_start=date(2026,12,28)),datetime(2026,12,28,tzinfo=UTC)))
         self.assertEqual(slots[0][0],date(2026,12,28))
         self.assertEqual(slots[0][1].year,2027)
 
@@ -63,7 +64,7 @@ class GenerationTests(unittest.IsolatedAsyncioTestCase):
         session.get.return_value=Obj(teacher_id=3)
         session.execute.return_value=result(value=5)
         count=await CalendarService.generate_locked(session,rule(),NOW)
-        self.assertEqual(count,4)
+        self.assertEqual(count,1)
         statement=session.execute.call_args.args[0]
         sql=str(statement.compile(dialect=postgresql.dialect()))
         self.assertIn('ON CONFLICT ON CONSTRAINT uq_lesson_schedule_week DO NOTHING',sql)
@@ -122,27 +123,11 @@ class LessonMutationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(teacher)
 
 class RuleUpdateTests(unittest.IsolatedAsyncioTestCase):
-    async def update(self,apply,**kwargs):
-        self.item=lesson()
-        self.rule=rule()
-        self.session=AsyncMock()
-        self.session.execute.side_effect=[result(self.rule),result(rows=[self.item]),result()]
-        with patch.object(CalendarService,'generate_locked',AsyncMock()),patch('app.services.calendar_service.utcnow',return_value=NOW):
-            return await CalendarService.update_rule(self.session,self.rule,day_of_week=1,start_time=time(19),
-                duration_minutes=90,timezone='Europe/Kyiv',apply_future=apply,**kwargs)
-    async def test_keep_mode_preserves_existing_lesson(self):
-        await self.update(False)
-        self.assertEqual(self.item.scheduled_at,NOW+timedelta(hours=7))
-        self.assertEqual(self.item.duration_minutes,60)
-        self.assertEqual(self.rule.start_time,time(19))
-    async def test_apply_mode_updates_date_duration_and_zone(self):
-        await self.update(True)
-        self.assertEqual(self.item.scheduled_at,datetime(2026,9,29,16,tzinfo=UTC))
-        self.assertEqual(self.item.duration_minutes,90)
-        sql=str(self.session.execute.call_args_list[1].args[0].compile(dialect=postgresql.dialect()))
-        self.assertIn('is_exception IS false',sql)
-        self.assertIn('FOR UPDATE',sql)
-    async def test_stale_rule_rejected_before_any_commit(self):
-        with self.assertRaises(ValueError):
-            await self.update(False,expected={})
-        self.session.commit.assert_not_awaited()
+    async def test_old_template_updates_rejected_without_writes(self):
+        session = AsyncMock()
+        for apply in [False, True]:
+            with self.assertRaises(ValueError):
+                await CalendarService.update_rule(session, rule(), day_of_week=1,
+                    start_time=time(19), duration_minutes=90, timezone='Europe/Kyiv', apply_future=apply)
+        session.execute.assert_not_awaited()
+        session.commit.assert_not_awaited()

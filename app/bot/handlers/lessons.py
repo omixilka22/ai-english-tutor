@@ -1,5 +1,5 @@
 """Upcoming lessons, detail, and teacher-only rescheduling/cancellation."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from aiogram import F, Router
 from aiogram.fsm.state import State, StatesGroup
@@ -15,7 +15,7 @@ from app.bot.handlers.extra_lesson import router as extra_router
 router = Router(name='lessons')
 router.include_router(extra_router)
 LABELS = {LessonStatus.SCHEDULED:'Заплановано',LessonStatus.CANCELLED:'Скасовано',
-          LessonStatus.COMPLETED:'Завершено',LessonStatus.PROCESSING:'Обробка',
+          LessonStatus.COMPLETED:'Проведено',LessonStatus.PROCESSING:'Обробка',
           LessonStatus.READY_FOR_REVIEW:'На перевірці',LessonStatus.APPROVED:'Підтверджено',LessonStatus.SENT:'Надіслано'}
 
 
@@ -25,6 +25,19 @@ class LessonEdit(StatesGroup):
     cancel = State()
     restore = State()
     delete = State()
+
+
+def attendance_label(lesson):
+    if lesson.status == LessonStatus.CANCELLED:
+        return 'Скасовано'
+    if getattr(lesson, 'conducted_at', None):
+        return 'Проведено'
+    now = utcnow()
+    if now < lesson.scheduled_at:
+        return 'Заплановано'
+    if now < lesson.scheduled_at + timedelta(minutes=lesson.duration_minutes):
+        return 'Триває'
+    return 'Очікує підтвердження викладача'
 
 
 def local_label(lesson):
@@ -44,15 +57,33 @@ async def lesson_list(callback,state):
             await session.rollback()
             await show_screen(callback,state,str(error) if isinstance(error,ValueError) else 'Не вдалося завантажити заняття. Спробуйте знову.')
             return
-    rows = [[(f'{local_label(l)} · {LABELS[l.status]}',f'lesson_{l.id}')] for l in lessons]
+    rows = [[(f'{local_label(l)} · {attendance_label(l)}',f'lesson_{l.id}')] for l in lessons]
     footer = navigation(f'student_{student.id}' if teacher else 'home')
+    footer.inline_keyboard.insert(0, keyboard([[('🗂 Історія занять', f'lesson_history_{student.id}' if teacher else 'my_lesson_history')]]).inline_keyboard[0])
     if teacher:
         footer.inline_keyboard.insert(0,keyboard([[('＋ Додаткове заняття',f'extra_lesson_{student.id}')]]).inline_keyboard[0])
-    await paginated_screen(callback,state,'📚 Найближчі заняття\nГоризонт генерації — 4 тижні.' if rows else '📚 Занять поки немає. Можна додати розклад або разове заняття.',
+    await paginated_screen(callback,state,'📚 Заняття поточного тижня та наступні' if rows else '📚 Занять поки немає. Можна додати розклад або разове заняття.',
         rows=rows,footer=footer)
 
 
-@router.callback_query(F.data.regexp(r'^(lesson|notification_lesson)_\d+$'))
+@router.callback_query(F.data.regexp(r'^lesson_history_\d+$') | (F.data == 'my_lesson_history'))
+async def history_list(callback, state):
+    await clear_flow(state)
+    await callback.answer()
+    student_id = None if callback.data == 'my_lesson_history' else int(callback.data.rsplit('_', 1)[1])
+    async with AsyncSessionLocal() as session:
+        try:
+            student, teacher, lessons = await CalendarService.history(session, callback.from_user.id, student_id)
+        except (ValueError, SQLAlchemyError) as error:
+            await session.rollback()
+            await show_screen(callback, state, str(error) if isinstance(error, ValueError) else 'Не вдалося завантажити історію.')
+            return
+    await paginated_screen(callback, state, '🗂 Попередні тижні · останні 100 занять' if lessons else '🗂 Історія поки порожня.',
+        rows=[[(f'{local_label(l)} · {attendance_label(l)}', f'history_lesson_{l.id}')] for l in lessons],
+        footer=navigation(f'student_lessons_{student.id}' if teacher else 'my_lessons'))
+
+
+@router.callback_query(F.data.regexp(r'^(lesson|notification_lesson|history_lesson)_\d+$'))
 async def detail(callback,state):
     await clear_flow(state)
     await callback.answer()
@@ -67,12 +98,17 @@ async def detail(callback,state):
         rows += [[('✎ Перенести',f'move_lesson_{lesson.id}'),('Скасувати заняття',f'cancel_lesson_{lesson.id}')]]
     if teacher and lesson.status==LessonStatus.CANCELLED and lesson.scheduled_at>utcnow():
         rows += [[('↶ Відновити заняття',f'restore_lesson_{lesson.id}')]]
+    if teacher and not getattr(lesson, 'conducted_at', None) and lesson.status != LessonStatus.CANCELLED and lesson.scheduled_at + timedelta(minutes=lesson.duration_minutes) <= utcnow():
+        rows += [[('✓ Урок проведено', f'attendance_yes_{lesson.id}')], [('Урок не відбувся', f'attendance_no_{lesson.id}')]]
+    if teacher and getattr(lesson, 'conducted_at', None):
+        rows += [[('📖 Матеріали уроку',f'material_{lesson.id}')]]
     if teacher:
         rows += [[('🗑 Видалити заняття',f'delete_lesson_{lesson.id}')]]
-    rows += [[('‹ До занять',f'student_lessons_{lesson.student_id}' if teacher else 'my_lessons'),('⌂ Головне меню','home')]]
+    back = (f'lesson_history_{lesson.student_id}' if teacher else 'my_lesson_history') if callback.data.startswith('history_lesson_') else (f'student_lessons_{lesson.student_id}' if teacher else 'my_lessons')
+    rows += [[('‹ До занять',back),('⌂ Головне меню','home')]]
     title = '📚 Додаткове заняття · без повторення' if getattr(lesson,'schedule_id',1) is None else '📚 Заняття'
     await show_screen(callback,state,f'{title}\n\n{local_label(lesson)}\n{lesson.timezone}\n'
-        f'{lesson.duration_minutes} хв · {LABELS[lesson.status]}',reply_markup=keyboard(rows))
+        f'{lesson.duration_minutes} хв · {attendance_label(lesson)}',reply_markup=keyboard(rows))
 
 
 @router.callback_query(F.data.regexp(r'^(move|cancel)_lesson_\d+$'))

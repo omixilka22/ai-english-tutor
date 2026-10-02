@@ -5,6 +5,12 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
+_material_notice_cleanup = None
+
+
+def set_material_notice_cleanup(callback):
+    global _material_notice_cleanup
+    _material_notice_cleanup = callback
 
 
 def keyboard(rows):
@@ -39,6 +45,11 @@ async def delete_input(bot, chat_id, message_id):
 
 async def show_screen(event, state, text, reply_markup=None):
     """Edit the current screen; replace it only if Telegram cannot edit it."""
+    if _material_notice_cleanup is not None:
+        try:
+            await _material_notice_cleanup(event)
+        except Exception as error:
+            logger.warning('Could not clean material notice: %s', type(error).__name__)
     callback = isinstance(event, CallbackQuery)
     message = event.message if callback else event
     bot = event.bot
@@ -47,7 +58,7 @@ async def show_screen(event, state, text, reply_markup=None):
     old_id = data.get('_screen_id')
     command = (message.text or '').split(maxsplit=1)[0].split('@', 1)[0].lower() if not callback and message.text else ''
     navigation_command = command in {'/start', '/menu', '/cancel'}
-    from_notification = callback and (event.data == 'notification_list' or event.data.startswith(('notification_lesson_', 'notification_meet_')))
+    from_notification = callback and (event.data == 'notification_list' or event.data.startswith(('notification_lesson_', 'notification_meet_', 'notification_material_')))
     screen_id = old_id if from_notification else (message.message_id if callback else old_id)
     if navigation_command:
         # A command is a visible entry point: answer at the bottom, even if an old menu exists.

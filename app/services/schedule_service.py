@@ -65,6 +65,7 @@ class ScheduleService:
         start_time: time,
         duration_minutes: int,
         timezone: str,
+        week_start=None,
     ) -> WeeklySchedule:
 
         ScheduleService.validate_schedule(
@@ -83,6 +84,7 @@ class ScheduleService:
             start_time,
             duration_minutes,
             timezone,
+            week_start=week_start,
         )
 
     @staticmethod

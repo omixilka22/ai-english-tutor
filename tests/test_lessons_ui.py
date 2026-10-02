@@ -98,3 +98,27 @@ class LessonDispatchTests(unittest.IsolatedAsyncioTestCase):
         buttons=[b.callback_data for row in screens[-1].reply_markup.inline_keyboard for b in row]
         self.assertNotIn('restore_lesson_1',buttons)
         self.assertNotIn('delete_lesson_1',buttons)
+
+    async def test_confirmation_only_after_end(self):
+        now=datetime.now(timezone.utc)
+        self.lesson.scheduled_at=now-timedelta(minutes=5)
+        with patch.object(ui,'utcnow',return_value=now),patch.object(ui,'show_screen',AsyncMock()) as screen:
+            await self.click('lesson_1')
+            callbacks=[b.callback_data for row in screen.call_args.kwargs['reply_markup'].inline_keyboard for b in row]
+            self.assertNotIn('attendance_yes_1',callbacks)
+            self.assertIn('Триває',screen.call_args.args[2])
+            self.assertNotIn('не підтверджено',screen.call_args.args[2])
+            self.lesson.scheduled_at=now-timedelta(minutes=60)
+            await self.click('lesson_1')
+            callbacks=[b.callback_data for row in screen.call_args.kwargs['reply_markup'].inline_keyboard for b in row]
+            self.assertIn('attendance_yes_1',callbacks)
+            self.assertIn('attendance_no_1',callbacks)
+    async def test_completed_history_detail_returns_to_history(self):
+        self.lesson.conducted_at=datetime.now(timezone.utc)
+        self.lesson.status=LessonStatus.COMPLETED
+        with patch.object(ui,'show_screen',AsyncMock()) as screen:
+            await self.click('history_lesson_1')
+            callbacks=[b.callback_data for row in screen.call_args.kwargs['reply_markup'].inline_keyboard for b in row]
+            self.assertIn('lesson_history_2',callbacks)
+            self.assertIn('material_1',callbacks)
+            self.assertIn('Проведено',screen.call_args.args[2])

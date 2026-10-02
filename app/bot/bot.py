@@ -1,8 +1,10 @@
 import asyncio
+from app.bot.handlers.materials import router as materials_router
+from app.workers.materials import run as run_materials
 from app.workers.notifications import run as run_notifications
 from app.bot.handlers.notification_settings import router as notifications_router
 from contextlib import suppress
-from app.workers.lesson_generator import run as run_generator
+from app.workers.week_renewal import run as run_week_renewal
 from app.bot.handlers.lessons import router as lesson_router
 
 from aiogram import Bot, Dispatcher, F
@@ -31,6 +33,7 @@ dp.include_router(lesson_router)
 dp.include_router(notifications_router)
 from app.bot.handlers.meeting import router as meeting_router
 dp.include_router(meeting_router)
+dp.include_router(materials_router)
 
 
 async def show_home(event, state, note=''):
@@ -231,15 +234,20 @@ async def configure_navigation(client):
 
 
 async def main():
+    from app.bot.ui import set_material_notice_cleanup
+    from app.services.material_notices import clean_notice
+    set_material_notice_cleanup(clean_notice)
     await configure_navigation(bot)
-    generator = asyncio.create_task(run_generator())
+    generator = asyncio.create_task(run_week_renewal(bot))
     notifications = asyncio.create_task(run_notifications(bot))
+    materials = asyncio.create_task(run_materials(bot))
     try:
         await dp.start_polling(bot)
     finally:
         generator.cancel()
         notifications.cancel()
-        for task in (generator, notifications):
+        materials.cancel()
+        for task in (generator, notifications, materials):
             with suppress(asyncio.CancelledError):
                 await task
 

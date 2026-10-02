@@ -26,14 +26,24 @@ def local_instant(day, clock, zone_name, *, strict=False):
     return min(candidates)  # Weekly recurrence uses the first occurrence in an autumn fold.
 
 
-def weekly_slots(schedule, now, days=28):
+def week_monday(now=None):
+    now = aware_utc(now or datetime.now(timezone.utc))
+    local = now.astimezone(ZoneInfo('Europe/Kyiv')).date()
+    return local - timedelta(days=local.weekday())
+
+
+def week_bounds(week):
+    return (local_instant(week, datetime.min.time(), 'Europe/Kyiv'),
+            local_instant(week + timedelta(days=7), datetime.min.time(), 'Europe/Kyiv'))
+
+
+def weekly_slots(schedule, now):
+    """A saved entry belongs to exactly one calendar week, never a rolling horizon."""
     now = aware_utc(now)
-    end = now + timedelta(days=days)
-    local = now.astimezone(ZoneInfo(schedule.timezone)).date()
-    monday = local - timedelta(days=local.weekday())
-    # Include the boundary week, then filter by the half-open UTC horizon.
-    for offset in range(days // 7 + 2):
-        week = monday + timedelta(weeks=offset)
-        instant = local_instant(week + timedelta(days=schedule.day_of_week),schedule.start_time,schedule.timezone)
-        if instant is not None and now <= instant < end:
-            yield week, instant
+    week = schedule.week_start
+    if week is None:
+        return
+    instant = local_instant(week + timedelta(days=schedule.day_of_week),
+                            schedule.start_time, schedule.timezone)
+    if instant is not None and instant > now:
+        yield week, instant

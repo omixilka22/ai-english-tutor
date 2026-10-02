@@ -1,4 +1,4 @@
-"""A database outbox; callers record changes in the lesson's transaction."""
+
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -15,7 +15,6 @@ def utcnow():
 
 
 def reminder_times(lesson, now, *, teacher=False):
-    """Do not catch up reminders whose due time preceded creation/restoration/move."""
     if lesson.is_deleted or lesson.status != LessonStatus.SCHEDULED or lesson.scheduled_at <= now:
         return []
     result=[]

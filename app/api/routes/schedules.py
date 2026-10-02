@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import date, time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -18,6 +18,7 @@ router = APIRouter(
 
 
 class ScheduleCreate(BaseModel):
+    week_start: date | None = None
     teacher_id: int
     student_id: int
     day_of_week: int
@@ -27,6 +28,7 @@ class ScheduleCreate(BaseModel):
 
 
 class ScheduleResponse(BaseModel):
+    week_start: date
     id: int
     teacher_id: int
     student_id: int
@@ -73,6 +75,7 @@ async def create_schedule(
             start_time=data.start_time,
             duration_minutes=data.duration_minutes,
             timezone=data.timezone,
+            week_start=data.week_start,
         )
 
         return schedule

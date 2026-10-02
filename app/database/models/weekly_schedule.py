@@ -1,4 +1,5 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Time
+from datetime import date
+from sqlalchemy import Date, Boolean, ForeignKey, Integer, String, Time
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
@@ -8,6 +9,8 @@ class WeeklySchedule(Base):
     __tablename__ = "weekly_schedules"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    week_start: Mapped[date] = mapped_column(Date, nullable=False)
 
     teacher_id: Mapped[int] = mapped_column(
         ForeignKey("teachers.id"),

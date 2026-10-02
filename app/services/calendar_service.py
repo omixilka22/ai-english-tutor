@@ -1,5 +1,6 @@
 """Transactional lesson calendar operations shared by bot and background generation."""
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from app.database.models import Lesson, LessonStatus, WeeklySchedule, Student, Teacher, User, UserRole
@@ -9,6 +10,12 @@ from app.services.recurrence import weekly_slots, local_instant, aware_utc
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+def current_week_start(now=None):
+    local = aware_utc(now or utcnow()).astimezone(ZoneInfo('Europe/Kyiv'))
+    monday = local.date() - timedelta(days=local.weekday())
+    return local_instant(monday, datetime.min.time(), 'Europe/Kyiv')
 
 
 class CalendarService:
@@ -61,13 +68,22 @@ class CalendarService:
     @staticmethod
     async def upcoming(session, telegram_id, student_id=None):
         student, teacher = await CalendarService.student_access(session,telegram_id,student_id)
-        await CalendarService.generate_for_student(session,student.id)
         lessons = (await session.execute(select(Lesson).where(Lesson.student_id==student.id,
-            Lesson.is_deleted.is_(False),Lesson.scheduled_at>=utcnow()).order_by(Lesson.scheduled_at,Lesson.id))).scalars().all()
+            Lesson.is_deleted.is_(False),Lesson.scheduled_at>=current_week_start()).order_by(Lesson.scheduled_at,Lesson.id))).scalars().all()
         # A teacher cannot see lessons from a previous teacher.
         if teacher:
             lessons = [l for l in lessons if l.teacher_id==student.teacher_id]
         return student,teacher,lessons
+
+    @staticmethod
+    async def history(session, telegram_id, student_id=None):
+        student, teacher = await CalendarService.student_access(session, telegram_id, student_id)
+        statement = select(Lesson).where(Lesson.student_id == student.id,
+            Lesson.is_deleted.is_(False), Lesson.scheduled_at < current_week_start())
+        if teacher:
+            statement = statement.where(Lesson.teacher_id == student.teacher_id)
+        lessons = (await session.execute(statement.order_by(Lesson.scheduled_at.desc(), Lesson.id.desc()).limit(100))).scalars().all()
+        return student, teacher, lessons
 
     @staticmethod
     async def lesson_access(session, telegram_id, lesson_id, *, write=False):
@@ -166,37 +182,4 @@ class CalendarService:
     @staticmethod
     async def update_rule(session, schedule, *, day_of_week, start_time, duration_minutes,
                           timezone, apply_future=False, expected=None):
-        from app.services.schedule_service import ScheduleService
-        ScheduleService.validate_schedule(day_of_week,start_time,duration_minutes,timezone)
-        schedule = (await session.execute(select(WeeklySchedule).where(WeeklySchedule.id==schedule.id)
-            .with_for_update().execution_options(populate_existing=True))).scalar_one()
-        current = dict(day_of_week=schedule.day_of_week,start_time=schedule.start_time.isoformat(),
-                       duration_minutes=schedule.duration_minutes,timezone=schedule.timezone)
-        if expected is not None and expected != current:
-            raise ValueError('Розклад уже змінився. Відкрийте його знову.')
-        now = utcnow()
-        # Fill old slots before changing the rule so "keep" truly preserves the next four weeks.
-        await CalendarService.generate_locked(session,schedule,now)
-        lessons = (await session.execute(select(Lesson).where(Lesson.schedule_id==schedule.id,
-            Lesson.is_deleted.is_(False),Lesson.scheduled_at>now,Lesson.status==LessonStatus.SCHEDULED,Lesson.is_exception.is_(False)
-        ).with_for_update())).scalars().all()
-        if apply_future:
-            for lesson in lessons:
-                if lesson.occurrence_week is None:
-                    continue
-                instant = local_instant(lesson.occurrence_week+timedelta(days=day_of_week),start_time,timezone)
-                if instant is None or instant<=now:
-                    raise ValueError('Нове правило переносить одне із занять у минуле або неіснуючий час. Оберіть «Зберегти заняття без змін».')
-                changed = (lesson.scheduled_at,lesson.duration_minutes,lesson.timezone) != (instant,duration_minutes,timezone)
-                lesson.scheduled_at = instant
-                lesson.duration_minutes = duration_minutes
-                lesson.timezone = timezone
-                if changed:
-                    await record_change(session,lesson,'updated',now)
-        schedule.day_of_week = day_of_week
-        schedule.start_time = start_time
-        schedule.duration_minutes = duration_minutes
-        schedule.timezone = timezone
-        await CalendarService.generate_locked(session,schedule,now)
-        await session.commit()
-        return schedule
+        raise ValueError('Постійних шаблонів більше немає. Відкрийте конкретне заняття, щоб перенести або скасувати його.')

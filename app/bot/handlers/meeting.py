@@ -1,4 +1,3 @@
-"""Teacher-managed Meet link in a student's card."""
 from aiogram import F, Router
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.exc import SQLAlchemyError

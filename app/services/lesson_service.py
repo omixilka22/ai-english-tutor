@@ -62,6 +62,8 @@ class LessonService:
             if schedule is None or not schedule.active or schedule.teacher_id != teacher_id or schedule.student_id != student_id:
                 raise ValueError("Розклад не належить цьому викладачу та учню.")
             local_day = scheduled_at.astimezone(ZoneInfo(schedule.timezone)).date()
+            if local_day - timedelta(days=local_day.weekday()) != schedule.week_start:
+                raise ValueError('Заняття має належати вибраному календарному тижню.')
             options = dict(occurrence_week=local_day-timedelta(days=local_day.weekday()),
                            duration_minutes=schedule.duration_minutes, timezone=schedule.timezone)
         try:

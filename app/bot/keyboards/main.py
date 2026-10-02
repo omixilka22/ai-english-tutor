@@ -10,7 +10,7 @@ def teacher_main_menu_keyboard():
 
 
 def student_main_menu_keyboard():
-    return keyboard([[('📚 Мої заняття', 'my_lessons')], [('🔔 Нагадування', 'notification_settings')], [('⚙ Змінити роль', 'change_role')]])
+    return keyboard([[('📚 Мої заняття', 'my_lessons')], [('📖 Матеріали уроків', 'my_materials')], [('🔔 Нагадування', 'notification_settings')]])
 
 
 def schedule_menu_keyboard():
@@ -31,6 +31,7 @@ def student_menu_keyboard(student_id):
         [('🎥 Посилання на урок', f'meet_{student_id}')],
         [('📅 Розклад', f'student_schedule_{student_id}')],
         [('📚 Заняття', f'student_lessons_{student_id}')],
+        [('📖 Матеріали уроків', f'materials_{student_id}')],
         [('＋ Додаткове заняття', f'extra_lesson_{student_id}')],
         [('‹ До учнів', 'my_students'), ('⌂ Головне меню', 'home')],
     ])
@@ -39,7 +40,7 @@ def student_menu_keyboard(student_id):
 def student_schedule_keyboard(student_id):
     return keyboard([
         [('＋ Додати розклад', f'add_schedule_{student_id}')],
-        [('✎ Редагувати розклад', f'edit_student_schedule_{student_id}')],
+        [('✎ Перенести / скасувати заняття', f'student_lessons_{student_id}')],
         [('＋ Додаткове заняття', f'extra_lesson_{student_id}')],
         [('‹ До учня', f'student_{student_id}'), ('⌂ Головне меню', 'home')],
     ])

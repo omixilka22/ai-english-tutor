@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, JSON
+from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, JSON, String, Integer, Boolean, BigInteger, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
@@ -15,6 +15,7 @@ class AnalysisStatus(str, Enum):
 
 class LessonAnalysis(Base):
     __tablename__ = "lesson_analyses"
+    __table_args__ = (Index("ix_analysis_workflow", "workflow_state", "next_attempt_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
@@ -34,6 +35,14 @@ class LessonAnalysis(Base):
         JSON,
         nullable=False,
     )
+
+    workflow_state = mapped_column(String(24), nullable=False, default='legacy', server_default='legacy')
+    revision = mapped_column(Integer, nullable=False, default=1, server_default='1')
+    last_error = mapped_column(String(64), nullable=True)
+    attempts = mapped_column(Integer, nullable=False, default=0, server_default='0')
+    next_attempt_at = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_message_id = mapped_column(BigInteger, nullable=True)
+    review_notified = mapped_column(Boolean, nullable=False, default=False, server_default='false')
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
