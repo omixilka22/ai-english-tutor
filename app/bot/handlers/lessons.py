@@ -2,11 +2,13 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from aiogram import F, Router
+from aiogram.types import InlineKeyboardButton
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.exc import SQLAlchemyError
 from app.bot.ui import clear_flow, show_screen, paginated_screen, keyboard, navigation
 from app.database.database import AsyncSessionLocal
-from app.database.models import LessonStatus
+from app.database.models import LessonStatus, Student
+from app.services.meeting_service import meeting_url
 from app.services.calendar_service import CalendarService, utcnow
 from app.services.recurrence import local_instant
 
@@ -60,6 +62,8 @@ async def lesson_list(callback,state):
     rows = [[(f'{local_label(l)} · {attendance_label(l)}',f'lesson_{l.id}')] for l in lessons]
     footer = navigation(f'student_{student.id}' if teacher else 'home')
     footer.inline_keyboard.insert(0, keyboard([[('🗂 Історія занять', f'lesson_history_{student.id}' if teacher else 'my_lesson_history')]]).inline_keyboard[0])
+    if not teacher and meeting_url(student):
+        footer.inline_keyboard.insert(0,[InlineKeyboardButton(text='🎥 Посилання на урок',url=meeting_url(student))])
     if teacher:
         footer.inline_keyboard.insert(0,keyboard([[('＋ Додаткове заняття',f'extra_lesson_{student.id}')]]).inline_keyboard[0])
     await paginated_screen(callback,state,'📚 Заняття поточного тижня та наступні' if rows else '📚 Занять поки немає. Можна додати розклад або разове заняття.',
@@ -90,6 +94,8 @@ async def detail(callback,state):
     async with AsyncSessionLocal() as session:
         try:
             lesson,teacher = await CalendarService.lesson_access(session,callback.from_user.id,int(callback.data.rsplit('_',1)[1]))
+            student = await session.get(Student,lesson.student_id) if not teacher and lesson.status!=LessonStatus.CANCELLED else None
+            url = meeting_url(student) if student and student.teacher_id==lesson.teacher_id else None
         except ValueError as error:
             await show_screen(callback,state,str(error))
             return
@@ -103,12 +109,16 @@ async def detail(callback,state):
     if teacher and getattr(lesson, 'conducted_at', None):
         rows += [[('📖 Матеріали уроку',f'material_{lesson.id}')]]
     if teacher:
+        rows += [[('🎙 Транскрибація',f'recall_{lesson.id}')]]
         rows += [[('🗑 Видалити заняття',f'delete_lesson_{lesson.id}')]]
     back = (f'lesson_history_{lesson.student_id}' if teacher else 'my_lesson_history') if callback.data.startswith('history_lesson_') else (f'student_lessons_{lesson.student_id}' if teacher else 'my_lessons')
     rows += [[('‹ До занять',back),('⌂ Головне меню','home')]]
+    markup=keyboard(rows)
+    if not teacher and url and lesson.status!=LessonStatus.CANCELLED:
+        markup.inline_keyboard.insert(0,[InlineKeyboardButton(text='🎥 Посилання на урок',url=url)])
     title = '📚 Додаткове заняття · без повторення' if getattr(lesson,'schedule_id',1) is None else '📚 Заняття'
     await show_screen(callback,state,f'{title}\n\n{local_label(lesson)}\n{lesson.timezone}\n'
-        f'{lesson.duration_minutes} хв · {attendance_label(lesson)}',reply_markup=keyboard(rows))
+        f'{lesson.duration_minutes} хв · {attendance_label(lesson)}',reply_markup=markup)
 
 
 @router.callback_query(F.data.regexp(r'^(move|cancel)_lesson_\d+$'))

@@ -4,7 +4,7 @@ import logging
 from datetime import timedelta
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import BufferedInputFile
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select, or_, and_, delete
 from app.database.database import AsyncSessionLocal
 from app.database.models import (Lesson, LessonStatus, LessonAnalysis, AnalysisStatus, Transcript,
                                  Teacher, Student, User, UserRole)
@@ -64,11 +64,16 @@ async def process_one(bot, lesson_id):
             try:
                 if transcript is None:
                     raise gemini_analysis.AnalysisError('missing_transcript')
-                analysis.content = await asyncio.wait_for(gemini_analysis.analyze(transcript.text), timeout=95)
+                fallback = gemini_analysis.fallback_for_attempt(analysis.attempts, analysis.last_error)
+                if fallback:
+                    logger.info('Gemini lesson %s: using configured fallback', lesson_id)
+                operation = (gemini_analysis.analyze(transcript.text, model=fallback) if fallback
+                             else gemini_analysis.analyze(transcript.text))
+                analysis.content = await asyncio.wait_for(operation, timeout=95)
             except (gemini_analysis.AnalysisError, TimeoutError) as error:
                 code = error.code if isinstance(error, gemini_analysis.AnalysisError) else 'network'
                 analysis.last_error = code
-                if code in {'http_500', 'http_502', 'http_503', 'http_504'} and analysis.attempts < 3:
+                if code in gemini_analysis.TRANSIENT_ERRORS and analysis.attempts < 3:
                     analysis.next_attempt_at = utcnow() + timedelta(seconds=30 * 2 ** (analysis.attempts - 1))
                 else:
                     analysis.workflow_state = 'failed'
@@ -130,6 +135,7 @@ async def process_one(bot, lesson_id):
         else:
             analysis.workflow_state = 'sent'
             analysis.telegram_message_id = sent.message_id
+            await session.execute(delete(Transcript).where(Transcript.lesson_id == lesson_id))
             analysis.last_error = None
             analysis.next_attempt_at = None
         await session.commit()

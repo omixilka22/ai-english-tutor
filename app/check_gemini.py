@@ -7,10 +7,10 @@ import aiohttp
 from app.config import settings
 from app.services import gemini_analysis
 
-async def main(probe=False):
+async def main(probe=False, fallback=False):
     if not gemini_analysis.configured():
         print('GEMINI_API_KEY is not configured.'); return
-    model = settings.GEMINI_MODEL
+    model = settings.GEMINI_FALLBACK_MODEL if fallback else settings.GEMINI_MODEL
     if not re.fullmatch(r'[A-Za-z0-9._-]+', model):
         print('Invalid GEMINI_MODEL value.'); return
     print('Configured model:', model)
@@ -43,7 +43,7 @@ async def main(probe=False):
         if probe and model in models:
             print('Testing with a synthetic dialogue; no real transcript.')
             try:
-                await gemini_analysis.analyze('Teacher: What did you do yesterday? Student: I went to school.')
+                await gemini_analysis.analyze('Teacher: What did you do yesterday? Student: I went to school.', model=model)
             except gemini_analysis.AnalysisError as error:
                 print('Analysis test:', error.code)
             else:
@@ -56,4 +56,6 @@ async def main(probe=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--probe', action='store_true', help='Test one synthetic dialogue (uses API quota).')
-    asyncio.run(main(parser.parse_args().probe))
+    parser.add_argument('--fallback', action='store_true', help='Check configured fallback model instead of primary.')
+    args=parser.parse_args()
+    asyncio.run(main(args.probe, args.fallback))
