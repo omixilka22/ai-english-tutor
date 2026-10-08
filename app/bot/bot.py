@@ -34,6 +34,9 @@ dp.include_router(notifications_router)
 from app.bot.handlers.meeting import router as meeting_router
 dp.include_router(meeting_router)
 dp.include_router(materials_router)
+from app.bot.handlers.recall import router as recall_router
+from app.workers.recall import run as run_recall
+dp.include_router(recall_router)
 
 
 async def show_home(event, state, note=''):
@@ -241,13 +244,15 @@ async def main():
     generator = asyncio.create_task(run_week_renewal(bot))
     notifications = asyncio.create_task(run_notifications(bot))
     materials = asyncio.create_task(run_materials(bot))
+    recall = asyncio.create_task(run_recall(bot))
     try:
         await dp.start_polling(bot)
     finally:
         generator.cancel()
         notifications.cancel()
         materials.cancel()
-        for task in (generator, notifications, materials):
+        recall.cancel()
+        for task in (generator, notifications, materials, recall):
             with suppress(asyncio.CancelledError):
                 await task
 

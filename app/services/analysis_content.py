@@ -8,10 +8,10 @@ MAX_FILE_BYTES = 256 * 1024
 MAX_BLOCK_CHARS = 2800
 
 
-def validate_transcript(text):
+def validate_transcript(text, *, max_chars=MAX_TRANSCRIPT_CHARS):
     text = text.strip()
-    if not text or len(text) > MAX_TRANSCRIPT_CHARS or '\x00' in text:
-        raise ValueError('Транскрипт має містити від 1 до 60 000 символів звичайного тексту.')
+    if not text or len(text) > max_chars or '\x00' in text:
+        raise ValueError(f'Транскрипт має містити від 1 до {max_chars} символів звичайного тексту.')
     return text
 
 

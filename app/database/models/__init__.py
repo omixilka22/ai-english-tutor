@@ -1,4 +1,5 @@
 from app.database.models.week_renewal import WeekRenewal
+from app.database.models.recall_session import RecallSession, RecallEvent
 from app.database.models.user import User, UserRole
 from app.database.models.teacher import Teacher
 from app.database.models.student import Student
