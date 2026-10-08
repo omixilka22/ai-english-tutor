@@ -3,10 +3,16 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from app.config import settings
 
 
-DATABASE_URL = (
-    f"postgresql+asyncpg://"
-    f"{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
-    f"@localhost:5433/{settings.POSTGRES_DB}"
+# URL.create safely handles passwords containing @, /, : or %.
+from sqlalchemy.engine import URL
+
+DATABASE_URL = URL.create(
+    "postgresql+asyncpg",
+    username=settings.POSTGRES_USER,
+    password=settings.POSTGRES_PASSWORD,
+    host=settings.POSTGRES_HOST,
+    port=settings.POSTGRES_PORT,
+    database=settings.POSTGRES_DB,
 )
 
 engine = create_async_engine(
