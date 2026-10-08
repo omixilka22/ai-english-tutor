@@ -33,6 +33,8 @@ dp.include_router(lesson_router)
 dp.include_router(notifications_router)
 from app.bot.handlers.meeting import router as meeting_router
 dp.include_router(meeting_router)
+from app.bot.handlers.student_removal import router as student_removal_router
+dp.include_router(student_removal_router)
 dp.include_router(materials_router)
 
 

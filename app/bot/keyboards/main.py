@@ -33,6 +33,7 @@ def student_menu_keyboard(student_id):
         [('📚 Заняття', f'student_lessons_{student_id}')],
         [('📖 Матеріали уроків', f'materials_{student_id}')],
         [('＋ Додаткове заняття', f'extra_lesson_{student_id}')],
+        [('🗑 Видалити учня', f'remove_student_{student_id}')],
         [('‹ До учнів', 'my_students'), ('⌂ Головне меню', 'home')],
     ])
 
