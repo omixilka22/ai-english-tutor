@@ -1,0 +1,63 @@
+name: Test and deploy
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -q
+        env:
+          POSTGRES_DB: test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          TELEGRAM_BOT_TOKEN: '123456:TEST_TOKEN'
+          TEACHER_REGISTRATION_CODE: test
+      - name: Validate deployment files
+        run: |
+          bash -n deploy/deploy.sh
+          cp deploy/server.env.example .env
+          docker compose -f compose.production.yml config --quiet
+          rm .env
+      - name: Check Docker build
+        run: docker build -t teacher-bot:ci .
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: [self-hosted, linux, x64, teacher-bot-production]
+    timeout-minutes: 30
+    concurrency:
+      group: teacher-bot-production
+      cancel-in-progress: false
+    steps:
+      - name: Deploy tested commit on Kamatera
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/deploy/ai-english-tutor
+          git fetch origin master
+          if [ "$(git rev-parse origin/master)" != "$GITHUB_SHA" ]; then
+            echo "Commit superseded; skipping"
+            exit 0
+          fi
+          script=$(mktemp)
+          trap 'rm -f "$script"' EXIT
+          git show "$GITHUB_SHA:deploy/deploy.sh" > "$script"
+          bash "$script" /home/deploy/ai-english-tutor "$GITHUB_SHA"
