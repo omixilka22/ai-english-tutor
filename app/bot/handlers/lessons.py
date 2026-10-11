@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.exc import SQLAlchemyError
 from app.bot.ui import clear_flow, show_screen, paginated_screen, keyboard, navigation
 from app.database.database import AsyncSessionLocal
-from app.database.models import LessonStatus, Student
+from app.database.models import LessonStatus, Student, User
 from app.services.meeting_service import meeting_url
 from app.services.calendar_service import CalendarService, utcnow
 from app.services.recurrence import local_instant
@@ -87,18 +87,32 @@ async def history_list(callback, state):
         footer=navigation(f'student_lessons_{student.id}' if teacher else 'my_lessons'))
 
 
-@router.callback_query(F.data.regexp(r'^(lesson|notification_lesson|history_lesson)_\d+$'))
+@router.callback_query(F.data.regexp(r'^(lesson|lesson_more|notification_lesson|history_lesson)_\d+$'))
 async def detail(callback,state):
+    previous = await state.get_data()
     await clear_flow(state)
     await callback.answer()
     async with AsyncSessionLocal() as session:
         try:
             lesson,teacher = await CalendarService.lesson_access(session,callback.from_user.id,int(callback.data.rsplit('_',1)[1]))
+            student_name = None
+            if teacher:
+                pupil = await session.get(Student, lesson.student_id)
+                profile = await session.get(User, pupil.user_id) if pupil else None
+                student_name = profile.name if profile else 'Учень'
             student = await session.get(Student,lesson.student_id) if not teacher and lesson.status!=LessonStatus.CANCELLED else None
             url = meeting_url(student) if student and student.teacher_id==lesson.teacher_id else None
         except ValueError as error:
             await show_screen(callback,state,str(error))
             return
+    if teacher and previous.get('_pages') and not callback.data.startswith(('notification_', 'lesson_more_')):
+        await state.update_data(_teacher_list={
+            'source': previous.get('_list_source'),
+            'index': previous.get('_page_index', 0), 'user': callback.from_user.id})
+    more = callback.data.startswith('lesson_more_')
+    if more and not teacher:
+        await show_screen(callback, state, 'Недостатньо прав.')
+        return
     rows=[]
     if teacher and lesson.status==LessonStatus.SCHEDULED and lesson.scheduled_at>utcnow():
         rows += [[('✎ Перенести',f'move_lesson_{lesson.id}'),('Скасувати заняття',f'cancel_lesson_{lesson.id}')]]
@@ -112,11 +126,24 @@ async def detail(callback,state):
         rows += [[('🎙 Транскрибація',f'recall_{lesson.id}')]]
         rows += [[('🗑 Видалити заняття',f'delete_lesson_{lesson.id}')]]
     back = (f'lesson_history_{lesson.student_id}' if teacher else 'my_lesson_history') if callback.data.startswith('history_lesson_') else (f'student_lessons_{lesson.student_id}' if teacher else 'my_lessons')
-    rows += [[('‹ До занять',back),('⌂ Головне меню','home')]]
+    if teacher and (await state.get_data()).get('_teacher_list'):
+        back = 'teacher_list_return'
+    rows += [[('‹ До списку' if teacher else '‹ До занять',back),('⌂ Головне меню','home')]]
+    if teacher:
+        management = {'move_lesson_', 'cancel_lesson_', 'restore_lesson_', 'delete_lesson_'}
+        actions = [row for row in rows[:-1]
+                   if any(data.startswith(tuple(management)) for _, data in row)]
+        primary = [row for row in rows[:-1] if row not in actions]
+        if more:
+            rows = actions + [[('‹ До уроку', f'lesson_{lesson.id}')]]
+        else:
+            rows = primary + [[('⋯ Керування заняттям', f'lesson_more_{lesson.id}')]] + rows[-1:]
     markup=keyboard(rows)
     if not teacher and url and lesson.status!=LessonStatus.CANCELLED:
         markup.inline_keyboard.insert(0,[InlineKeyboardButton(text='🎥 Посилання на урок',url=url)])
     title = '📚 Додаткове заняття · без повторення' if getattr(lesson,'schedule_id',1) is None else '📚 Заняття'
+    if teacher:
+        title = f'{student_name} · {title}'
     await show_screen(callback,state,f'{title}\n\n{local_label(lesson)}\n{lesson.timezone}\n'
         f'{lesson.duration_minutes} хв · {attendance_label(lesson)}',reply_markup=markup)
 
@@ -233,3 +260,42 @@ async def confirm_change(callback,state):
 @router.callback_query(F.data.in_({'lesson_move_confirm','lesson_cancel_confirm','lesson_restore_confirm','lesson_delete_confirm'}))
 async def stale(callback):
     await callback.answer('Цю дію вже завершено. Відкрийте заняття знову.',show_alert=True)
+
+
+@router.callback_query(F.data == 'teacher_list_return')
+async def return_to_teacher_list(callback, state):
+    from app.bot.handlers.schedules import teacher_for
+    from app.bot.ui import show_page
+    await callback.answer()
+    async with AsyncSessionLocal() as session:
+        try:
+            await teacher_for(session, callback.from_user.id)
+        except ValueError as error:
+            await show_screen(callback, state, str(error))
+            return
+    saved = (await state.get_data()).get('_teacher_list')
+    await clear_flow(state)
+    if not saved or saved.get('user') != callback.from_user.id:
+        await show_screen(callback, state, 'Відкрийте розклад знову.', reply_markup=keyboard([
+            [('📅 Розклад', 'general_schedule')], [('⌂ Меню', 'home')]]))
+        return
+    from copy import copy
+    from app.bot.handlers.schedules import general_schedule, student_schedule
+    source = saved.get('source') or ''
+    if source in ('general_schedule', 'schedule_menu') or source.startswith('week_view_'):
+        handler = general_schedule
+    elif source.startswith(('student_schedule_', 'week_student_')):
+        handler = student_schedule
+    elif source.startswith('lesson_history_'):
+        handler = history_list
+    elif source.startswith('student_lessons_'):
+        handler = lesson_list
+    else:
+        await show_screen(callback, state, 'Відкрийте розклад знову.', reply_markup=keyboard([
+            [('📅 Розклад', 'general_schedule')]]))
+        return
+    destination = copy(callback)
+    destination.data = source
+    await handler(destination, state)
+    if (await state.get_data()).get('_pages') and saved['index']:
+        await show_page(callback, state, saved['index'])

@@ -28,9 +28,13 @@ def navigation(back='home'):
 
 
 async def clear_flow(state):
-    """Reset business input, retaining only the active navigation message ID."""
-    screen = (await state.get_data()).get('_screen_id')
+    """Reset business input, retaining the active message and teacher return destination."""
+    data = await state.get_data()
+    teacher_list = data.get('_teacher_list')
+    screen = data.get('_screen_id')
     await state.clear()
+    if teacher_list is not None:
+        await state.update_data(_teacher_list=teacher_list)
     if screen is not None:
         await state.update_data(_screen_id=screen)
 
@@ -98,7 +102,7 @@ async def paginated_screen(event, state, title, *, lines=None, rows=None, footer
         if lines is not None:
             text += '\n\n' + '\n'.join(str(line)[:320] for line in portion)
         pages.append({'text':text,'rows':portion if rows is not None else []})
-    await state.update_data(_pages=pages, _page_footer=(footer or navigation()).model_dump())
+    await state.update_data(_list_source=getattr(event, 'data', None), _pages=pages, _page_footer=(footer or navigation()).model_dump())
     await show_page(event, state, 0)
 
 
@@ -109,6 +113,7 @@ async def show_page(event, state, index):
         await show_screen(event, state, 'Цей список уже закрито. Поверніться в головне меню.')
         return
     index = min(max(index, 0), len(pages) - 1)
+    await state.update_data(_page_index=index)
     page = pages[index]
     markup = keyboard(page['rows'])
     if len(pages) > 1:

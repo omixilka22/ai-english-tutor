@@ -61,7 +61,7 @@ async def owned_student(session, teacher_id, student_id):
     return student
 
 
-@router.callback_query(F.data == 'schedule_menu')
+@router.callback_query(F.data == 'legacy_schedule_menu')
 async def schedule_menu(callback, state: FSMContext):
     await clear_flow(state)
     async with AsyncSessionLocal() as session:
@@ -86,6 +86,7 @@ def week_title(week):
 
 @router.callback_query(F.data == 'general_schedule')
 @router.callback_query(F.data.startswith('week_view_'))
+@router.callback_query(F.data == 'schedule_menu')
 async def general_schedule(callback, state: FSMContext):
     week = selected_week(callback)
     await clear_flow(state)
@@ -104,9 +105,10 @@ async def general_schedule(callback, state: FSMContext):
     other = week_monday() + timedelta(days=7) if week == week_monday() else week_monday()
     footer = keyboard([
         [('＋ Додати заняття', f'week_students_{week.isoformat()}')],
-        [('Повторити попередній / скласти новий', f'week_plan_{week.isoformat()}')],
-        [(f'Тиждень {week_title(other)}', f'week_view_{other.isoformat()}')],
-        [('‹ Назад', 'schedule_menu'), ('⌂ Головне меню', 'home')]])
+        [('Планування тижня', f'week_plan_{week.isoformat()}')],
+        [('Наступний тиждень' if other > week else 'Цей тиждень', f'week_view_{other.isoformat()}')],
+        [('Обрати учня', f'week_students_{week.isoformat()}')],
+        [('⌂ Меню', 'home')]])
     await callback.answer()
     await paginated_screen(callback, state, f'📅 {week_title(week)}' + ('\nЗанять поки немає.' if not rows else ''), rows=rows, footer=footer)
 
@@ -154,8 +156,9 @@ async def student_schedule(callback, state: FSMContext):
         rows=rows, footer=keyboard([
             [('＋ Заняття цього тижня', f'week_add_{student_id}_{week.isoformat()}')],
             [('＋ Разове додаткове', f'extra_lesson_{student_id}')],
-            [(f'Тиждень {week_title(other)}', f'week_student_{student_id}_{other.isoformat()}')],
-            [('‹ Назад', f'week_view_{week.isoformat()}'), ('⌂ Головне меню', 'home')]]))
+            [('Наступний тиждень' if other > week else 'Цей тиждень', f'week_student_{student_id}_{other.isoformat()}')],
+            [('🗂 Історія', f'lesson_history_{student_id}')],
+            [('‹ До учня', f'student_{student_id}'), ('⌂ Меню', 'home')]]))
 
 
 @router.callback_query(F.data.startswith('week_plan_'))
