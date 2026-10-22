@@ -29,6 +29,7 @@ def student_menu_keyboard(student_id):
     return keyboard([
         [('📅 Заняття', f'student_schedule_{student_id}')],
         [('📖 Матеріали', f'materials_{student_id}')],
+        [('🎥 Посилання Google Meet', f'meet_{student_id}')],
         [('⚙ Налаштування учня', f'student_settings_{student_id}')],
         [('‹ До учнів', 'my_students'), ('⌂ Меню', 'home')],
     ])
