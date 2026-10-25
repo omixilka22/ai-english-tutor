@@ -3,8 +3,9 @@ from app.bot.ui import keyboard, navigation
 
 def teacher_main_menu_keyboard():
     return keyboard([
-        [('📅 Розклад', 'general_schedule'), ('👥 Учні', 'my_students')],
-        [('⚙ Налаштування', 'teacher_settings')],
+        [('👥 Мої учні', 'my_students'), ('📅 Розклад', 'schedule_menu')],
+        [('＋ Запросити учня', 'create_student_invite')],
+        [('⚙ Змінити роль', 'change_role')],
     ])
 
 
@@ -27,11 +28,13 @@ def students_keyboard(students):
 
 def student_menu_keyboard(student_id):
     return keyboard([
-        [('📅 Заняття', f'student_schedule_{student_id}')],
-        [('📖 Матеріали', f'materials_{student_id}')],
-        [('🎥 Посилання Google Meet', f'meet_{student_id}')],
-        [('⚙ Налаштування учня', f'student_settings_{student_id}')],
-        [('‹ До учнів', 'my_students'), ('⌂ Меню', 'home')],
+        [('🎥 Посилання на урок', f'meet_{student_id}')],
+        [('📅 Розклад', f'student_schedule_{student_id}')],
+        [('📚 Заняття', f'student_lessons_{student_id}')],
+        [('📖 Матеріали уроків', f'materials_{student_id}')],
+        [('＋ Додаткове заняття', f'extra_lesson_{student_id}')],
+        [('🗑 Видалити учня', f'remove_student_{student_id}')],
+        [('‹ До учнів', 'my_students'), ('⌂ Головне меню', 'home')],
     ])
 
 

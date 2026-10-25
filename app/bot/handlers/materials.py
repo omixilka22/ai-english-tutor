@@ -97,11 +97,7 @@ async def render(event, state, lesson_id, page=0):
             arrows.append(('‹ Попередній блок', f'material_page_{lesson_id}_{page-1}'))
         if page < 3:
             arrows.append(('Наступний блок ›', f'material_page_{lesson_id}_{page+1}'))
-        if teacher:
-            tabs = [(('• ' if i == page else '') + title, f'material_page_{lesson_id}_{i}')
-                    for i, title in enumerate(('Підсумок', 'Помилки', 'Слова', 'Домашнє'))]
-            rows.extend([tabs[:2], tabs[2:]])
-        elif arrows:
+        if arrows:
             rows.append(arrows)
         if teacher and analysis.workflow_state == 'review':
             text += '\n\nЧернетка: перевірте точність перед надсиланням.'

@@ -18,7 +18,7 @@ from app.bot.handlers.schedules import router as schedule_router, teacher_for, o
 from app.bot.keyboards.main import teacher_main_menu_keyboard, student_main_menu_keyboard, student_menu_keyboard
 from app.bot.keyboards.registration import registration_keyboard, role_change_keyboard
 from app.bot.states.registration import RegistrationState
-from app.bot.ui import keyboard, clear_flow, show_screen, show_page, navigation, paginated_screen
+from app.bot.ui import clear_flow, show_screen, show_page, navigation, paginated_screen
 from app.database.database import AsyncSessionLocal
 from app.database.models import UserRole
 from app.services.registration_service import RegistrationService
@@ -42,7 +42,6 @@ dp.include_router(recall_router)
 
 
 async def show_home(event, state, note=''):
-    await state.update_data(_teacher_list=None)
     await clear_flow(state)
     async with AsyncSessionLocal() as session:
         user = await UserService.get_by_telegram_id(session, event.from_user.id)
@@ -207,10 +206,10 @@ async def my_students_callback(callback, state: FSMContext):
         students = await StudentService.get_by_teacher_id(session, teacher.id)
     if not students:
         await show_screen(callback, state, '👥 Мої учні\n\nПоки що порожньо. Запросіть першого учня.',
-                          reply_markup=keyboard([[('＋ Запросити учня', 'create_student_invite')], [('‹ Меню', 'home')]]))
+                          reply_markup=teacher_main_menu_keyboard())
         return
     await paginated_screen(callback, state, f'👥 Мої учні · {len(students)}\n\nОберіть учня:',
-        rows=[[(user.name, f'student_{student.id}')] for student, user in students], footer=keyboard([[('＋ Запросити учня', 'create_student_invite')], [('‹ Меню', 'home')]]))
+        rows=[[(user.name, f'student_{student.id}')] for student, user in students], footer=navigation())
 
 
 @dp.callback_query(F.data.regexp(r'^student_\d+$'))
@@ -228,38 +227,6 @@ async def student_callback(callback, state: FSMContext):
         user = await UserService.get_by_id(session, student.user_id)
     await show_screen(callback, state, f'👤 {user.name if user else "Учень"}\n\nРозклад і заняття учня.',
                       reply_markup=student_menu_keyboard(student_id))
-
-
-@dp.callback_query(F.data == 'teacher_settings')
-async def teacher_settings(callback, state):
-    await callback.answer()
-    async with AsyncSessionLocal() as session:
-        try:
-            await teacher_for(session, callback.from_user.id)
-        except ValueError as error:
-            await show_screen(callback, state, str(error))
-            return
-    await clear_flow(state)
-    await show_screen(callback, state, '⚙ Налаштування викладача', reply_markup=keyboard([
-        [('Змінити роль', 'change_role')], [('‹ Меню', 'home')]]))
-
-
-@dp.callback_query(F.data.regexp(r'^student_settings_\d+$'))
-async def student_settings(callback, state):
-    await callback.answer()
-    student_id = int(callback.data.rsplit('_', 1)[1])
-    async with AsyncSessionLocal() as session:
-        try:
-            teacher = await teacher_for(session, callback.from_user.id)
-            await owned_student(session, teacher.id, student_id)
-        except ValueError as error:
-            await show_screen(callback, state, str(error))
-            return
-    await clear_flow(state)
-    await show_screen(callback, state, '⚙ Налаштування учня', reply_markup=keyboard([
-        [('🎥 Посилання Google Meet', f'meet_{student_id}')],
-        [('🗑 Видалити учня', f'remove_student_{student_id}')],
-        [('‹ До учня', f'student_{student_id}')], [('⌂ Меню', 'home')]]))
 
 
 async def configure_navigation(client):
