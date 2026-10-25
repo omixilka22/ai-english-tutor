@@ -1,3 +1,4 @@
+from app.bot.date_picker import date_rows, date_text, bind_picker
 """A one-off lesson for an existing student, independent of weekly schedules."""
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
@@ -26,14 +27,14 @@ async def render(event,state,error=''):
     header=f"＋ Додаткове заняття · {data['student_name']}\n\n"
     rows=[]
     if current==ExtraLesson.date.state:
-        example=(utcnow().astimezone(ZoneInfo(TIMEZONE))+timedelta(days=1)).strftime('%d.%m.%Y')+' 18:30'
-        text=f'Крок 1 / 3 · Дата і час\n{TIMEZONE}\n\nВведіть ДД.ММ.РРРР ГГ:ХХ, наприклад {example}.'
+        text=f'Крок 1 / 3 · Дата і час\n{TIMEZONE}\n\nОберіть дату кнопкою. Потім оберіть або введіть час.'
+        rows=date_rows(TIMEZONE)
         back=f"student_lessons_{data['student_id']}"
     else:
         moment=datetime.fromisoformat(data['scheduled_at']).astimezone(ZoneInfo(TIMEZONE))
         if current==ExtraLesson.duration.state:
             text=f'Крок 2 / 3 · Тривалість\n\n{moment:%d.%m.%Y %H:%M} · {TIMEZONE}\nОберіть або введіть тривалість у хвилинах (1–1440).'
-            rows=[[(f'{n} хв',f'extra_duration_{n}') for n in (30,45,60)],[(f'{n} хв',f'extra_duration_{n}') for n in (90,120)]]
+            rows=[[(f'{n} хв',f'extra_duration_{n}') for n in (30,45,50)],[(f'{n} хв',f'extra_duration_{n}') for n in (60,90,120)]]
         else:
             text=(f"Крок 3 / 3 · Підтвердження\n\n{moment:%d.%m.%Y %H:%M} · {TIMEZONE}\n"
                   f"Тривалість: {data['duration_minutes']} хв\n\nЛише одне заняття, без повторення. Щотижневий розклад не зміниться.")
@@ -61,14 +62,15 @@ async def begin(callback,state):
 
 
 @router.message(ExtraLesson.date)
-async def enter_date(message,state):
+async def enter_date(message,state,raw=None):
+    data=await state.get_data()
     try:
-        naive=datetime.strptime(message.text or '', '%d.%m.%Y %H:%M')
+        naive=datetime.strptime(date_text(raw if raw is not None else message.text, data), '%d.%m.%Y %H:%M')
         instant=local_instant(naive.date(),naive.time(),TIMEZONE,strict=True)
         if instant<=utcnow():
             raise ValueError()
     except ValueError:
-        await render(message,state,'Вкажіть майбутню дату й коректний місцевий час у форматі ДД.ММ.РРРР ГГ:ХХ.')
+        await render(message,state,'Оберіть дату кнопкою та майбутній час. Свій час можна написати як 17:20.')
         return
     await state.update_data(scheduled_at=instant.isoformat())
     await state.set_state(ExtraLesson.duration)
@@ -89,7 +91,7 @@ async def enter_duration(message,state):
     await set_duration(message,state,(message.text or '').strip())
 
 
-@router.callback_query(ExtraLesson.duration,F.data.regexp(r'^extra_duration_(30|45|60|90|120)$'))
+@router.callback_query(ExtraLesson.duration,F.data.regexp(r'^extra_duration_(30|45|50|60|90|120)$'))
 async def choose_duration(callback,state):
     await callback.answer()
     await set_duration(callback,state,callback.data.rsplit('_',1)[1])
@@ -127,3 +129,6 @@ async def confirm(callback,state):
 @router.callback_query(F.data.startswith('extra_duration_') | F.data.in_({'extra_confirm','extra_back'}))
 async def stale(callback):
     await callback.answer('Цю дію вже завершено. Відкрийте меню учня знову.',show_alert=True)
+
+
+bind_picker(router, ExtraLesson.date, enter_date, lambda data: TIMEZONE, lambda data: f"student_lessons_{data['student_id']}")

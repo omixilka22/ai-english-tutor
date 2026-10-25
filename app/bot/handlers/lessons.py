@@ -1,3 +1,4 @@
+from app.bot.date_picker import date_rows, date_text, bind_picker
 """Upcoming lessons, detail, and teacher-only rescheduling/cancellation."""
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -134,7 +135,7 @@ async def begin_change(callback,state):
         except ValueError as error:
             await show_screen(callback,state,str(error))
             return
-    await state.update_data(lesson_id=lesson_id,timezone=lesson.timezone)
+    await state.update_data(lesson_id=lesson_id,timezone=lesson.timezone,picked_date=None)
     if callback.data.startswith('cancel_'):
         await state.set_state(LessonEdit.cancel)
         await show_screen(callback,state,f'Скасувати заняття {local_label(lesson)}?\n\nЩотижневий розклад залишиться без змін.',
@@ -142,7 +143,7 @@ async def begin_change(callback,state):
     else:
         await state.set_state(LessonEdit.date)
         await show_screen(callback,state,f'Нова дата заняття\n\nЗараз: {local_label(lesson)}\nЧасовий пояс: {lesson.timezone}\n'
-            'Введіть ДД.ММ.РРРР ГГ:ХХ, наприклад 15.10.2026 18:30.',reply_markup=navigation(f'lesson_{lesson_id}'))
+            'Оберіть нову дату, потім час.',reply_markup=keyboard(date_rows(lesson.timezone) + [[('‹ До уроку', f'lesson_{lesson_id}')]]))
 
 
 @router.callback_query(F.data.regexp(r'^(restore|delete)_lesson_\d+$'))
@@ -192,16 +193,16 @@ async def confirm_restore_delete(callback,state):
 
 
 @router.message(LessonEdit.date)
-async def enter_date(message,state):
+async def enter_date(message,state,raw=None):
     data = await state.get_data()
     try:
-        naive = datetime.strptime(message.text or '', '%d.%m.%Y %H:%M')
+        naive = datetime.strptime(date_text(raw if raw is not None else message.text, data), '%d.%m.%Y %H:%M')
         instant = local_instant(naive.date(),naive.time(),data['timezone'],strict=True)
         if instant<=utcnow():
             raise ValueError('Дата повинна бути в майбутньому.')
     except ValueError:
-        await show_screen(message,state,'Вкажіть майбутню дату у форматі ДД.ММ.РРРР ГГ:ХХ.\n'
-            'Час має однозначно існувати у вашому часовому поясі.',reply_markup=navigation(f"lesson_{data['lesson_id']}"))
+        await show_screen(message,state,'Оберіть дату й майбутній час. Після вибору дати можна написати час як 17:20.\n'
+            'Час має однозначно існувати у вашому часовому поясі.',reply_markup=keyboard(date_rows(data['timezone']) + [[('‹ До уроку', f"lesson_{data['lesson_id']}")]]))
         return
     await state.update_data(scheduled_at=instant.isoformat())
     await state.set_state(LessonEdit.confirm)
@@ -233,3 +234,6 @@ async def confirm_change(callback,state):
 @router.callback_query(F.data.in_({'lesson_move_confirm','lesson_cancel_confirm','lesson_restore_confirm','lesson_delete_confirm'}))
 async def stale(callback):
     await callback.answer('Цю дію вже завершено. Відкрийте заняття знову.',show_alert=True)
+
+
+bind_picker(router, LessonEdit.date, enter_date, lambda data: data['timezone'], lambda data: f"lesson_{data['lesson_id']}")

@@ -217,7 +217,7 @@ async def render_wizard(event, state, error=''):
         elif current == ScheduleState.choosing_duration.state:
             text = 'Крок 3 / 4 · Тривалість\n\n' + summary + f"Початок: {data['start_time']}\nОберіть тривалість заняття."
             rows = [[(f'{n} хв',f'schedule_duration_{n}') for n in values]
-                    for values in [(30,45,60),(90,120)]]
+                    for values in [(30,45,50),(60,90,120)]]
         else:
             text = ('Крок 4 / 4 · Підтвердження\n\n' + summary
                     + f"Початок: {data['start_time']}\nТривалість: {data['duration_minutes']} хв\nЛише на вибраний тиждень. Після збереження заняття бачить учень.")
@@ -269,7 +269,7 @@ async def enter_time(message, state: FSMContext):
     await render_wizard(message, state)
 
 
-@router.callback_query(ScheduleState.choosing_duration, F.data.regexp(r'^schedule_duration_(30|45|60|90|120)$'))
+@router.callback_query(ScheduleState.choosing_duration, F.data.regexp(r'^schedule_duration_(30|45|50|60|90|120)$'))
 async def choose_duration(callback, state: FSMContext):
     await state.update_data(duration_minutes=int(callback.data.rsplit('_',1)[1]))
     await state.set_state(ScheduleState.confirming)
