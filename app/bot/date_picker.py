@@ -58,7 +58,9 @@ def bind_picker(router, active_state, submit, zone_for, back_for):
             await show_screen(callback, state, 'Оберіть актуальну дату.', reply_markup=keyboard(date_rows(zone_for(data))))
             return
         await state.update_data(picked_date=chosen.isoformat())
-        rows = [[(f'{h}:00', f'picktime_{h}:00'), (f'{h}:30', f'picktime_{h}:30')] for h in (9, 12, 15, 18, 19, 20)]
+        slots = [f'{minute // 60:02d}:{minute % 60:02d}' for minute in range(9 * 60, 23 * 60 + 1, 30)]
+        buttons = [(slot, f'picktime_{slot}') for slot in slots]
+        rows = [buttons[i:i+4] for i in range(0, len(buttons), 4)]
         rows += [[('‹ Інша дата', 'pickdays_0')], [('Скасувати', back_for(data))]]
         await show_screen(callback, state, f'{chosen:%d.%m.%Y} · {zone_for(data)}\n\nОберіть час або напишіть свій, наприклад 17:20.', reply_markup=keyboard(rows))
 
